@@ -46,19 +46,19 @@
         try {
             // First fetch the role lists
             console.log('Fetching role lists for grid initialization...');
-            const query = 'query GetRoleLists {n' +
-                '    hIVRoles {n' +
-                '        nodes {n' +
-                '            databaseIdn' +
-                '            namen' +
-                '        }n' +
-                '    }n' +
-                '    sTIRoles {n' +
-                '        nodes {n' +
-                '            databaseIdn' +
-                '            namen' +
-                '        }n' +
-                '    }n' +
+            const query = 'query GetRoleLists {\n' +
+                '    hIVRoles {\n' +
+                '        nodes {\n' +
+                '            databaseId\n' +
+                '            name\n' +
+                '        }\n' +
+                '    }\n' +
+                '    sTIRoles {\n' +
+                '        nodes {\n' +
+                '            databaseId\n' +
+                '            name\n' +
+                '        }\n' +
+                '    }\n' +
                 '}';
     
             const roleListsResult = await makeGraphQLRequest(query);
@@ -122,8 +122,21 @@
                 ],
                 editable: 'inline',
                 save: function(e) {
-                    console.log('Save event triggered:', e);
-                },
+    console.log('Save event triggered:', e);
+    // Add a manual refresh after successful save
+    if (e.model) {
+        // If we have a model, the save operation was started but might be in progress
+        // Wait for it to complete before refreshing
+        setTimeout(() => {
+            try {
+                // Refresh the grid data after save
+                this.dataSource.read();
+            } catch (err) {
+                console.error('Error refreshing grid after save:', err);
+            }
+        }, 500);
+    }
+},
                 dataBound: function(e) {
                     console.log('Grid data bound event triggered');
                     console.log('Current data:', this.dataSource.data());
@@ -454,37 +467,37 @@
         return new kendo.data.DataSource({
             transport: {
                 read: async (options) => {
-                    const query = 'query GetUsersByJurisdiction($jurisdictionId: Int!) {n' +
-                        '    users(where: { jurisdictionDatabaseId: $jurisdictionId }) {n' +
-                        '        nodes {n' +
-                        '            databaseIdn' +
-                        '            firstNamen' +
-                        '            lastNamen' +
-                        '            emailn' +
-                        '            stdContactDetails {n' +
-                        '                userJurisdiction {n' +
-                        '                    nodes {n' +
-                        '                        databaseIdn' +
-                        '                    }n' +
-                        '                }n' +
-                        '                hivRole {n' +
-                        '                    nodes {n' +
-                        '                        databaseIdn' +
-                        '                        namen' +
-                        '                    }n' +
-                        '                }n' +
-                        '                stiRole {n' +
-                        '                    nodes {n' +
-                        '                        databaseIdn' +
-                        '                        namen' +
-                        '                    }n' +
-                        '                }n' +
-                        '                userPhonen' +
-                        '                userFaxn' +
-                        '                notesStiHivn' +
-                        '            }n' +
-                        '        }n' +
-                        '    }n' +
+                    const query = 'query GetUsersByJurisdiction($jurisdictionId: Int!) {\n' +
+                        '    users(where: { jurisdictionDatabaseId: $jurisdictionId }) {\n' +
+                        '        nodes {\n' +
+                        '            databaseId\n' +
+                        '            firstName\n' +
+                        '            lastName\n' +
+                        '            email\n' +
+                        '            stdContactDetails {\n' +
+                        '                userJurisdiction {\n' +
+                        '                    nodes {\n' +
+                        '                        databaseId\n' +
+                        '                    }\n' +
+                        '                }\n' +
+                        '                hivRole {\n' +
+                        '                    nodes {\n' +
+                        '                        databaseId\n' +
+                        '                        name\n' +
+                        '                    }\n' +
+                        '                }\n' +
+                        '                stiRole {\n' +
+                        '                    nodes {\n' +
+                        '                        databaseId\n' +
+                        '                        name\n' +
+                        '                    }\n' +
+                        '                }\n' +
+                        '                userPhone\n' +
+                        '                userFax\n' +
+                        '                notesStiHiv\n' +
+                        '            }\n' +
+                        '        }\n' +
+                        '    }\n' +
                         '}';
 
                     try {
@@ -550,10 +563,10 @@
                             stiRoleValues: input.stiRole
                         });
 
-                        const mutation = 'mutation UpdateUserStdContact($input: UpdateUserStdContactInput!) {n' +
-                            '    updateUserStdContact(input: $input) {n' +
-                            '        clientMutationIdn' +  // Changed response fields
-                            '    }n' +
+                        const mutation = 'mutation UpdateUserStdContact($input: UpdateUserStdContactInput!) {\n' +
+                            '    updateUserStdContact(input: $input) {\n' +
+                            '        clientMutationId\n' +  // Changed response fields
+                            '    }\n' +
                             '}';
 
                         const result = await makeGraphQLRequest(mutation, { input });
@@ -584,8 +597,7 @@
                             showNotification('User updated successfully', 'success');
                         }
 
-                        // Refresh the grid to get the latest data
-                        options.model.dataSource.read();
+                       
                     } catch (error) {
                         console.error('Update operation failed:', {
                             error: error,
@@ -600,11 +612,100 @@
                         }
                     }
                 },
+                create: async (options) => {
+                    try {
+                        console.log('Starting user create operation:', {
+                            data: options.data
+                        });
+                        
+                        // Generate a random password for the new user
+                        const tempPassword = generateTemporaryPassword();
+                        
+                        // Step 1: Create the basic user (separate user data from contact details)
+                        const createUserInput = {
+                            username: options.data.email.split('@')[0],
+                            email: options.data.email,
+                            firstName: options.data.first_name,
+                            lastName: options.data.last_name,
+                            password: tempPassword,
+                            roles: ["subscriber"]
+                        };
+
+                        console.log('Step 1: Creating user with input:', createUserInput);
+
+                        const createUserMutation = 'mutation CreateUser($input: CreateUserInput!) {\n' +
+                            '    createUser(input: $input) {\n' +
+                            '        user {\n' +
+                            '            databaseId\n' +
+                            '            id\n' +
+                            '            email\n' +
+                            '            firstName\n' +
+                            '            lastName\n' +
+                            '        }\n' +
+                            '    }\n' +
+                            '}';
+
+                        const createResult = await makeGraphQLRequest(createUserMutation, { input: createUserInput });
+                        console.log('Create user result:', createResult);
+
+                        if (!createResult.data || !createResult.data.createUser || !createResult.data.createUser.user) {
+                            throw new Error('Failed to create user: Invalid response from server');
+                        }
+
+                        // Step 2: Update the user's contact details
+                        const newUser = createResult.data.createUser.user;
+                        const userId = btoa(`user:${newUser.databaseId}`); // Create Relay ID
+                        
+                        const updateContactInput = {
+                            userId: userId,
+                            hivRole: options.data.acf.hiv_role || [],
+                            stiRole: options.data.acf.sti_role || [],
+                            userPhone: options.data.acf.user_phone || '',
+                            userFax: options.data.acf.user_fax || '',
+                            notesStiHiv: options.data.acf.notes_sti_hiv || '',
+                            userJurisdiction: parseInt(jurisdictionId)
+                        };
+
+                        console.log('Step 2: Updating user contact details with input:', updateContactInput);
+
+                        const updateContactMutation = 'mutation UpdateUserStdContact($input: UpdateUserStdContactInput!) {\n' +
+                            '    updateUserStdContact(input: $input) {\n' +
+                            '        clientMutationId\n' +
+                            '    }\n' +
+                            '}';
+
+                        const updateResult = await makeGraphQLRequest(updateContactMutation, { input: updateContactInput });
+                        console.log('Update contact details result:', updateResult);
+
+                        // Return the complete user data
+                        const transformedData = {
+                            id: newUser.databaseId,
+                            first_name: newUser.firstName,
+                            last_name: newUser.lastName,
+                            email: newUser.email,
+                            acf: {
+                                hiv_role: updateContactInput.hivRole,
+                                sti_role: updateContactInput.stiRole,
+                                user_phone: updateContactInput.userPhone,
+                                user_fax: updateContactInput.userFax,
+                                notes_sti_hiv: updateContactInput.notesStiHiv
+                            }
+                        };
+
+                        console.log('New user created with contact details:', transformedData);
+                        options.success(transformedData);
+                        showNotification('User created successfully', 'success');
+                    } catch (error) {
+                        console.error('Create operation failed:', error);
+                        options.error(error);
+                        showNotification('Failed to create user: ' + error.message);
+                    }
+                },
                 destroy: async (options) => {
-                    const mutation = 'mutation DeleteUser($input: DeleteUserInput!) {n' +
-                        '    deleteUser(input: $input) {n' +
-                        '        deletedIdn' +
-                        '    }n' +
+                    const mutation = 'mutation DeleteUser($input: DeleteUserInput!) {\n' +
+                        '    deleteUser(input: $input) {\n' +
+                        '        deletedId\n' +
+                        '    }\n' +
                         '}';
 
                     try {
@@ -698,14 +799,14 @@
             console.log('Initializing ' + roleType + ' role editor');
             
             const queryType = roleType === 'HIV' ? 'hIVRoles' : 'sTIRoles';
-            const query = 'query Get' + roleType + 'Roles {n' +
-                '    ' + queryType + ' {n' +
-                '        nodes {n' +
-                '            databaseIdn' +
-                '            namen' +
-                '            slugn' +
-                '        }n' +
-                '    }n' +
+            const query = 'query Get' + roleType + 'Roles {\n' +
+                '    ' + queryType + ' {\n' +
+                '        nodes {\n' +
+                '            databaseId\n' +
+                '            name\n' +
+                '            slug\n' +
+                '        }\n' +
+                '    }\n' +
                 '}';
 
             const roleDataSource = new kendo.data.DataSource({
@@ -762,35 +863,35 @@
     async function initializeOOJGrid(jurisdictionId) {
         try {
             console.log('Fetching lists for OOJ grid initialization...');
-            const query = 'query GetOOJDetails($jurisdictionId: ID!) {n' +
-                '    jurisdiction(id: $jurisdictionId, idType: DATABASE_ID) {n' +
-                '        oojJurisdictionDetails {n' +
-                '            oojDetails {n' +
-                '                acceptAndInvestigaten' +
-                '                acceptAndInvestigateLastDateOfExposuren' +
-                '                confidentialPhonen' +
-                '                dispositionsReturnedn' +
-                '                informationReturnedn' +
-                '                notesn' +
-                '                oojIdn' +
-                '                oojActivity {n' +
-                '                    nodes {n' +
-                '                        namen' +
-                '                    }n' +
-                '                }n' +
-                '                pointOfContacts {n' +
-                '                    nodes {n' +
-                '                        namen' +
-                '                    }n' +
-                '                }n' +
-                '                oojInfection {n' +
-                '                    nodes {n' +
-                '                        namen' +
-                '                    }n' +
-                '                }n' +
-                '            }n' +
-                '        }n' +
-                '    }n' +
+            const query = 'query GetOOJDetails($jurisdictionId: ID!) {\n' +
+                '    jurisdiction(id: $jurisdictionId, idType: DATABASE_ID) {\n' +
+                '        oojJurisdictionDetails {\n' +
+                '            oojDetails {\n' +
+                '                acceptAndInvestigate\n' +
+                '                acceptAndInvestigateLastDateOfExposure\n' +
+                '                confidentialPhone\n' +
+                '                dispositionsReturned\n' +
+                '                informationReturned\n' +
+                '                notes\n' +
+                '                oojId\n' +
+                '                oojActivity {\n' +
+                '                    nodes {\n' +
+                '                        name\n' +
+                '                    }\n' +
+                '                }\n' +
+                '                pointOfContacts {\n' +
+                '                    nodes {\n' +
+                '                        name\n' +
+                '                    }\n' +
+                '                }\n' +
+                '                oojInfection {\n' +
+                '                    nodes {\n' +
+                '                        name\n' +
+                '                    }\n' +
+                '                }\n' +
+                '            }\n' +
+                '        }\n' +
+                '    }\n' +
                 '}';
 
             const result = await makeGraphQLRequest(query, { 
@@ -893,38 +994,38 @@
         return new kendo.data.DataSource({
             transport: {
                 read: async (options) => {
-                    const query = 'query GetOOJDetails($jurisdictionId: Int!) {n' +
-                        '    jurisdiction(id: $jurisdictionId, idType: DATABASE_ID) {n' +
-                        '        oojJurisdictionDetails {n' +
-                        '            oojDetails {n' +
-                        '                oojIdn' +
-                        '                acceptAndInvestigaten' +
-                        '                acceptAndInvestigateLastDateOfExposuren' +
-                        '                confidentialPhonen' +
-                        '                dispositionsReturnedn' +
-                        '                informationReturnedn' +
-                        '                notesn' +
-                        '                oojActivity {n' +
-                        '                    nodes {n' +
-                        '                        databaseIdn' +
-                        '                        namen' +
-                        '                    }n' +
-                        '                }n' +
-                        '                pointOfContacts {n' +
-                        '                    nodes {n' +
-                        '                        databaseIdn' +
-                        '                        namen' +
-                        '                    }n' +
-                        '                }n' +
-                        '                oojInfection {n' +
-                        '                    nodes {n' +
-                        '                        databaseIdn' +
-                        '                        namen' +
-                        '                    }n' +
-                        '                }n' +
-                        '            }n' +
-                        '        }n' +
-                        '    }n' +
+                    const query = 'query GetOOJDetails($jurisdictionId: Int!) {\n' +
+                        '    jurisdiction(id: $jurisdictionId, idType: DATABASE_ID) {\n' +
+                        '        oojJurisdictionDetails {\n' +
+                        '            oojDetails {\n' +
+                        '                oojId\n' +
+                        '                acceptAndInvestigate\n' +
+                        '                acceptAndInvestigateLastDateOfExposure\n' +
+                        '                confidentialPhone\n' +
+                        '                dispositionsReturned\n' +
+                        '                informationReturned\n' +
+                        '                notes\n' +
+                        '                oojActivity {\n' +
+                        '                    nodes {\n' +
+                        '                        databaseId\n' +
+                        '                        name\n' +
+                        '                    }\n' +
+                        '                }\n' +
+                        '                pointOfContacts {\n' +
+                        '                    nodes {\n' +
+                        '                        databaseId\n' +
+                        '                        name\n' +
+                        '                    }\n' +
+                        '                }\n' +
+                        '                oojInfection {\n' +
+                        '                    nodes {\n' +
+                        '                        databaseId\n' +
+                        '                        name\n' +
+                        '                    }\n' +
+                        '                }\n' +
+                        '            }\n' +
+                        '        }\n' +
+                        '    }\n' +
                         '}';
 
                     try {
@@ -956,19 +1057,19 @@
                 },
                 update: async (options) => {
                     const jurisdictionId = btoa(`post:${jurisdictionId}`); // Create Relay ID
-                    const mutation = 'mutation UpdateOOJDetails($input: UpdateOOJDetailsInput!) {n' +
-                        '    updateOOJDetails(input: $input) {n' +
-                        '        jurisdiction {n' +
-                        '            idn' +
-                        '            databaseIdn' +
-                        '            oojJurisdictionDetails {n' +
-                        '                oojDetails {n' +
-                        '                    oojIdn' +
-                        '                    dispositionsReturnedn' +
-                        '                }n' +
-                        '            }n' +
-                        '        }n' +
-                        '    }n' +
+                    const mutation = 'mutation UpdateOOJDetails($input: UpdateOOJDetailsInput!) {\n' +
+                        '    updateOOJDetails(input: $input) {\n' +
+                        '        jurisdiction {\n' +
+                        '            id\n' +
+                        '            databaseId\n' +
+                        '            oojJurisdictionDetails {\n' +
+                        '                oojDetails {\n' +
+                        '                    oojId\n' +
+                        '                    dispositionsReturned\n' +
+                        '                }\n' +
+                        '            }\n' +
+                        '        }\n' +
+                        '    }\n' +
                         '}';
 
                     try {
@@ -1001,19 +1102,13 @@
                 create: async (options) => {
                     // Similar to update but without oojId
                     const jurisdictionId = btoa(`post:${jurisdictionId}`);
-                    const mutation = 'mutation UpdateOOJDetails($input: UpdateOOJDetailsInput!) {n' +
-                        '    updateOOJDetails(input: $input) {n' +
-                        '        jurisdiction {n' +
-                        '            idn' +
-                        '            databaseIdn' +
-                        '            oojJurisdictionDetails {n' +
-                        '                oojDetails {n' +
-                        '                    oojIdn' +
-                        '                    dispositionsReturnedn' +
-                        '                }n' +
-                        '            }n' +
-                        '        }n' +
-                        '    }n' +
+                    const mutation = 'mutation UpdateOOJDetails($input: UpdateOOJDetailsInput!) {\n' +
+                        '    updateOOJDetails(input: $input) {\n' +
+                        '        jurisdiction {\n' +
+                        '            id\n' +
+                        '            databaseId\n' +
+                        '        }\n' +
+                        '    }\n' +
                         '}';
 
                     try {
@@ -1045,13 +1140,13 @@
                 destroy: async (options) => {
                     // For destroy, we'll update with an empty array for that specific oojId
                     const jurisdictionId = btoa(`post:${jurisdictionId}`);
-                    const mutation = 'mutation UpdateOOJDetails($input: UpdateOOJDetailsInput!) {n' +
-                        '    updateOOJDetails(input: $input) {n' +
-                        '        jurisdiction {n' +
-                        '            idn' +
-                        '            databaseIdn' +
-                        '        }n' +
-                        '    }n' +
+                    const mutation = 'mutation UpdateOOJDetails($input: UpdateOOJDetailsInput!) {\n' +
+                        '    updateOOJDetails(input: $input) {\n' +
+                        '        jurisdiction {\n' +
+                        '            id\n' +
+                        '            databaseId\n' +
+                        '        }\n' +
+                        '    }\n' +
                         '}';
 
                     try {
@@ -1121,14 +1216,14 @@
             console.log('Initializing contacts editor');
             
             // Fetch users for the jurisdiction
-            const query = 'query GetJurisdictionUsers($jurisdictionId: Int!) {n' +
-                '    users(where: { jurisdictionId: $jurisdictionId }) {n' +
-                '        nodes {n' +
-                '            databaseIdn' +
-                '            firstNamen' +
-                '            lastNamen' +
-                '        }n' +
-                '    }n' +
+            const query = 'query GetJurisdictionUsers($jurisdictionId: Int!) {\n' +
+                '    users(where: { jurisdictionId: $jurisdictionId }) {\n' +
+                '        nodes {\n' +
+                '            databaseId\n' +
+                '            firstName\n' +
+                '            lastName\n' +
+                '        }\n' +
+                '    }\n' +
                 '}';
 
             makeGraphQLRequest(query, { jurisdictionId: parseInt(jurisdictionId) })
@@ -1163,45 +1258,64 @@
     // Editor for OOJ Activity selection
     function createOOJActivityEditor(container, options) {
         console.log("Initializing OOJ Activity editor with options:", options);
+        console.log("OOJ Activity editor container:", container);
+        console.log("OOJ Activity field value:", options.model[options.field]);
 
-        // Fetch OOJ Activities
-        const query = `query GetOOJActivities {
-            oOJActivities {
-                nodes {
-                    databaseId
-                    name
+        try {
+            // Fetch OOJ Activities - using iCCRActivities instead of oOJActivities
+            const query = `query GetOOJActivities {
+                iCCRActivities {
+                    nodes {
+                        databaseId
+                        name
+                    }
                 }
-            }
-        }`;
+            }`;
 
-        makeGraphQLRequest(query)
-            .then(result => {
-                const activities = result.data.oOJActivities.nodes.map(activity => ({
-                    id: activity.databaseId,
-                    name: activity.name
-                }));
+            makeGraphQLRequest(query)
+                .then(result => {
+                    console.log("OOJ Activities query result:", result);
+                    
+                    if (!result.data || !result.data.iCCRActivities || !result.data.iCCRActivities.nodes) {
+                        console.error("Invalid OOJ Activities data structure:", result);
+                        showNotification("Failed to load OOJ Activities: Invalid data structure");
+                        return;
+                    }
+                    
+                    const activities = result.data.iCCRActivities.nodes.map(activity => ({
+                        id: activity.databaseId,
+                        name: activity.name
+                    }));
+                    
+                    console.log("Processed activities data:", activities);
 
-                // Initialize MultiSelect with fetched data
-                $("<input/>")
-                    .appendTo(container)
-                    .kendoMultiSelect({
-                        dataTextField: "name",
-                        dataValueField: "id",
-                        dataSource: activities,
-                        value: options.model[options.field] || [],
-                        valuePrimitive: true,
-                        autoClose: false,
-                        change: function(e) {
-                            const selectedItems = e.sender.value();
-                            options.model.set(options.field, selectedItems);
-                            console.log("Updated activity selections:", selectedItems);
-                        }
-                    });
-            })
-            .catch(error => {
-                console.error("Failed to fetch OOJ Activities:", error);
-                showNotification("Failed to load OOJ Activities");
-            });
+                    // Initialize MultiSelect with fetched data
+                    const multiSelect = $("<input name='" + options.field + "'/>")
+                        .appendTo(container)
+                        .kendoMultiSelect({
+                            dataTextField: "name",
+                            dataValueField: "id",
+                            dataSource: activities,
+                            value: options.model[options.field] || [],
+                            valuePrimitive: true,
+                            autoClose: false,
+                            change: function(e) {
+                                const selectedItems = e.sender.value();
+                                options.model.set(options.field, selectedItems);
+                                console.log("Updated activity selections:", selectedItems);
+                            }
+                        });
+                        
+                    console.log("MultiSelect widget created:", multiSelect.data("kendoMultiSelect"));
+                })
+                .catch(error => {
+                    console.error("Failed to fetch OOJ Activities:", error);
+                    showNotification("Failed to load OOJ Activities: " + error.message);
+                });
+        } catch (e) {
+            console.error("Exception in createOOJActivityEditor:", e);
+            showNotification("Error initializing OOJ Activity editor: " + e.message);
+        }
     }
 
     // Editor for OOJ Infection selection
@@ -1252,29 +1366,37 @@
     function createPointOfContactsEditor(container, options, jurisdictionId) {  // Added jurisdictionId parameter
         console.log("Initializing Point of Contacts editor with options:", options);
 
-        // Fetch Users for the jurisdiction
-        const query = `query GetJurisdictionUsers($jurisdictionId: ID!) {
-            jurisdiction(id: $jurisdictionId, idType: DATABASE_ID) {
-                users {
-                    nodes {
-                        databaseId
-                        firstName
-                        lastName
-                    }
+        // Fetch Users for the jurisdiction - using a different query approach
+        const query = `query GetJurisdictionUsers($jurisdictionId: Int!) {
+            users(where: { jurisdictionDatabaseId: $jurisdictionId }) {
+                nodes {
+                    databaseId
+                    firstName
+                    lastName
                 }
             }
         }`;
 
         // Use the passed jurisdictionId
-        makeGraphQLRequest(query, { jurisdictionId: jurisdictionId.toString() })
+        makeGraphQLRequest(query, { jurisdictionId: parseInt(jurisdictionId) })
             .then(result => {
-                const users = result.data.jurisdiction.users.nodes.map(user => ({
+                console.log("Users query result:", result);
+                
+                if (!result.data || !result.data.users || !result.data.users.nodes) {
+                    console.error("Invalid users data structure:", result);
+                    showNotification("Failed to load users: Invalid data structure");
+                    return;
+                }
+                
+                const users = result.data.users.nodes.map(user => ({
                     id: user.databaseId,
                     name: `${user.firstName} ${user.lastName}`
                 }));
+                
+                console.log("Processed users data:", users);
 
                 // Initialize MultiSelect with fetched data
-                $("<input/>")
+                const multiSelect = $("<input/>")
                     .appendTo(container)
                     .kendoMultiSelect({
                         dataTextField: "name",
@@ -1289,10 +1411,12 @@
                             console.log("Updated point of contacts:", selectedItems);
                         }
                     });
+                    
+                console.log("MultiSelect widget created:", multiSelect.data("kendoMultiSelect"));
             })
             .catch(error => {
                 console.error("Failed to fetch users:", error);
-                showNotification("Failed to load users");
+                showNotification("Failed to load users: " + error.message);
             });
     }
 

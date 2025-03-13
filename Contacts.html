@@ -1,0 +1,717 @@
+<script type="text/javascript">
+    // Safely generate the nonce in PHP and expose it to JavaScript
+    var wpApiSettings = {
+      nonce: '<?php echo wp_create_nonce("wp_rest"); ?>',
+    };
+  </script>
+  
+  <script>
+    var jurisdictionId = null;
+    var currentUserId = null;
+    var oojInfectionList = [];
+    var oojActivityList = [];
+    var jurisdictionUsersList = [];
+    var stiRoleList = [];
+    var hivRoleList = [];
+    var jurisdictionDropdown;
+    var jurisdictionGrid;
+    var oojJurisdictionGrid;
+    var contactGrid;
+    var jurisdictionList = [];
+    var oojDetails = oojDetails || [];
+  
+    var allJurisdictionList = [];
+    var methodsOfTransmissionList = [];
+  
+    var methodsOfTransmissionUrl =
+      "https://hivstiooj.cste.org/wp-json/wp/v2/iccr_method-of-transmitting?_fields=id,name&per_page=100";
+      
+    var currentUserInfoUrl =
+      "https://hivstiooj.cste.org/wp-json/wp/v2/users/me";
+    var baseJurisdictionUrl =
+      "https://hivstiooj.cste.org/wp-json/wp/v2/std_jurisdiction?per_page=100&_fields=title,id";
+    var oojJurisdictionUrlForAll =
+      "https://hivstiooj.cste.org/wp-json/wp/v2/std_jurisdiction?per_page=100&_fields=id,title,acf";
+    var ContactsUrlForAll =
+      "https://hivstiooj.cste.org/wp-json/wp/v2/users?per_page=500";
+    var baseUserUrlForFilter =
+      "https://hivstiooj.cste.org/wp-json/wp/v2/users?user_jurisdiction=";
+    var baseUserUrl =
+      "https://hivstiooj.cste.org/wp-json/wp/v2/users";
+    var oojInfectionUrl =
+      "https://hivstiooj.cste.org/wp-json/wp/v2/acf-ooj-infection?_fields=id,name";
+    var oojActivityUrl =
+      "https://hivstiooj.cste.org/wp-json/wp/v2/acf-ooj-activity?_fields=id,name";
+    var hivRoleUrl =
+      "https://hivstiooj.cste.org/wp-json/wp/v2/hiv-role?_fields=name,id";
+    var stiRoleUrl =
+      "https://hivstiooj.cste.org/wp-json/wp/v2/sti-role?_fields=name,id";
+  
+    var allJurisdictionsUrl =
+      "https://hivstiooj.cste.org/wp-json/wp/v2/std_jurisdiction?per_page=100&_fields=id,title,acf,modified";
+  
+    $(document).ready(function () {
+      Promise.all([
+        getJSONfromUrl(oojInfectionUrl).then((data) => (oojInfectionList = data)),
+        getJSONfromUrl(oojActivityUrl).then((data) => (oojActivityList = data)),
+        getJSONfromUrl(hivRoleUrl).then((data) => (hivRoleList = data)),
+        getJSONfromUrl(stiRoleUrl).then((data) => (stiRoleList = data)),
+          getJSONfromUrl(methodsOfTransmissionUrl).then(
+              (data) => (methodsOfTransmissionList = data)
+            ),
+        getJSONfromUrl(ContactsUrlForAll).then(
+          (data) => (jurisdictionUsersList = data)
+        ),
+        getJSONfromUrl(allJurisdictionsUrl).then(
+          (data) => (allJurisdictionList = data)
+        ),
+      ])
+        .then(() => {
+          GenerateJurisdictionDropdown();
+          initializeJurisdictionGrid();
+          initializeOojGrid([]); // Initialize with an empty array
+          initializeContactGrid();
+        })
+        .catch((error) => {
+          console.error("Error fetching one or more resources:", error);
+        });
+    });
+  
+    // Generate the dropdown for selecting a jurisdiction from the list of jurisdictions
+    // in the database and expose it to JavaScript
+    function GenerateJurisdictionDropdown() {
+      jurisdictionDropdown = $("#jurisdictionDropdown")
+        .kendoDropDownList({
+          dataTextField: "title",
+          dataValueField: "id",
+          dataSource: {
+            data: [{id: "ALL", title: "ALL"}].concat(
+              allJurisdictionList
+                .map((item) => ({
+                  id: item.id,
+                  title: item.title.rendered,
+                }))
+                .sort((a, b) => a.title.localeCompare(b.title))
+            ),
+          },
+          optionLabel: "Select a Jurisdiction...",
+          change: function (e) {
+            var selectedJurisdictionId = this.value();
+            console.log("Jurisdiction selected:", selectedJurisdictionId);
+  
+            loadJurisdictionGrid(selectedJurisdictionId);
+            loadOojGrid(selectedJurisdictionId);
+            updateContactGrid(selectedJurisdictionId);
+          },
+        })
+        .data("kendoDropDownList");
+    }
+  
+    function loadJurisdictionGrid(selectedJurisdictionId) {
+      console.log("Loading jurisdiction grid for ID:", selectedJurisdictionId);
+  
+      let gridData;
+  
+      if (selectedJurisdictionId === "ALL") {
+        gridData = [
+          {
+            title: "N/A",
+            fips_code: "N/A",
+            agency_name: "N/A",
+            address_jurisdiction: "N/A",
+            phone_jurisdiction: "N/A",
+            modified: "0000-00-00T00:00:00",
+          },
+        ];
+      } else {
+        // Ensure selectedJurisdictionId is a number
+        const jurisdictionId = parseInt(selectedJurisdictionId, 10);
+  
+        if (isNaN(jurisdictionId)) {
+          console.error("Invalid jurisdiction ID:", selectedJurisdictionId);
+          return;
+        }
+  
+        const currentJurisdiction = allJurisdictionList.find(
+          (jurisdiction) => jurisdiction.id === jurisdictionId
+        );
+  
+        if (!currentJurisdiction) {
+          console.error("Jurisdiction not found for ID:", jurisdictionId);
+          return;
+        }
+  
+        gridData = [
+          {
+            title: currentJurisdiction.title?.rendered || "N/A",
+            fips_code: currentJurisdiction.acf?.fips_code || "N/A",
+            agency_name: currentJurisdiction.acf?.agency_name || "N/A",
+            address_jurisdiction:
+              currentJurisdiction.acf?.address_jurisdiction || "N/A",
+            phone_jurisdiction:
+              currentJurisdiction.acf?.phone_jurisdiction || "N/A",
+            modified: currentJurisdiction.modified || "0000-00-00T00:00:00",
+          },
+        ];
+      }
+  
+      console.log("Setting grid data:", gridData);
+      jurisdictionGrid.dataSource.data(gridData);
+    }
+  
+    function loadOojGrid(selectedJurisdictionId) {
+      console.log("Loading OOJ grid for ID:", selectedJurisdictionId);
+  
+      let gridData = [];
+  
+      if (selectedJurisdictionId === "ALL") {
+        console.log("Loading OOJ data for all jurisdictions");
+        allJurisdictionList.forEach((jurisdiction) => {
+          if (jurisdiction.acf && Array.isArray(jurisdiction.acf.ooj_details)) {
+            const jurisdictionOojData = jurisdiction.acf.ooj_details.map(
+              (oojDetail) => ({
+                jurisdictionName: jurisdiction.title.rendered,
+                ...oojDetail,
+              })
+            );
+            gridData = gridData.concat(jurisdictionOojData);
+          }
+        });
+      } else {
+        const jurisdictionId = parseInt(selectedJurisdictionId, 10);
+  
+        if (isNaN(jurisdictionId)) {
+          console.error("Invalid jurisdiction ID:", selectedJurisdictionId);
+          return;
+        }
+  
+        const currentJurisdiction = allJurisdictionList.find(
+          (jurisdiction) => jurisdiction.id === jurisdictionId
+        );
+  
+        if (!currentJurisdiction) {
+          console.error("Jurisdiction not found for ID:", jurisdictionId);
+          return;
+        }
+  
+        if (
+          currentJurisdiction.acf &&
+          Array.isArray(currentJurisdiction.acf.ooj_details)
+        ) {
+          gridData = currentJurisdiction.acf.ooj_details.map((oojDetail) => ({
+            jurisdictionName: currentJurisdiction.title.rendered,
+            ...oojDetail,
+          }));
+        }
+      }
+  
+      console.log("Setting OOJ grid data:", gridData);
+      initializeOojGrid(gridData);
+    }
+    function initializeJurisdictionGrid() {
+      jurisdictionGrid = $("#jurisdictionGrid")
+        .kendoGrid({
+          dataSource: {
+            data: [],
+            schema: {
+              model: {
+                fields: {
+                  title: {type: "string"},
+                  fips_code: {type: "string"},
+                  agency_name: {type: "string"},
+                  address_jurisdiction: {type: "string"},
+                  phone_jurisdiction: {type: "string"},
+                  modified: {type: "date"},
+                },
+              },
+            },
+            sort: {field: "title", dir: "asc"},
+          },
+          columns: [
+            {field: "title", title: "Jurisdiction Name"},
+            {field: "fips_code", title: "FIPS Code"},
+            {field: "agency_name", title: "Agency Name"},
+            {field: "address_jurisdiction", title: "Agency Address"},
+            {field: "phone_jurisdiction", title: "Agency Phone"},
+            {
+              field: "modified",
+              title: "Last Updated",
+              template: function (dataItem) {
+                if (dataItem.modified === "0000-00-00T00:00:00") {
+                  return "00/00/0000";
+                } else {
+                  return kendo.toString(
+                    kendo.parseDate(dataItem.modified),
+                    "MM/dd/yyyy"
+                  );
+                }
+              },
+            },
+          ],
+          sortable: true,
+          pageable: true,
+          height: 350,
+        })
+        .data("kendoGrid");
+    }
+  
+    function initializeOojGrid(initialData = []) {
+      console.log("Initializing/Updating OOJ Grid with details:", initialData);
+      var oojDetailsDataSource = new kendo.data.DataSource({
+        data: initialData,
+        schema: {
+          model: {
+            id: "ooj_id",
+            fields: {
+              ooj_id: {type: "number"},
+              jurisdictionName: {type: "string"},
+              ooj_infection: {type: "number"},
+              ooj_activity: {type: "object"},
+              accept_and_investigate_last_date_of_exposure: {type: "string"},
+              dispositions_returned: {type: "string"},
+              information_returned: {type: "string"},
+              accept_and_investigate: {type: "string"},
+              method_of_transmitting: { type: "object", defaultValue: null },
+              confidential_email: {type: "string"},
+              confidential_phone: {type: "string"},
+              point_of_contacts: {type: "object"},
+              notes: {type: "string"},
+            },
+          },
+        },
+      });
+  
+      var grid = $("#oojJurisdictionGrid").data("kendoGrid");
+  
+      if (grid) {
+        // If grid already exists, update its dataSource
+        grid.setDataSource(oojDetailsDataSource);
+      } else {
+        // If grid doesn't exist, create it
+        $("#oojJurisdictionGrid").kendoGrid({
+          dataSource: oojDetailsDataSource,
+          toolbar: ["excel"],
+          columns: [
+            {field: "jurisdictionName", title: "Jurisdiction"},
+            {
+              field: "ooj_infection",
+              title: "OOJ Infection",
+              template: function (dataItem) {
+                var infection = oojInfectionList.find(function (inf) {
+                  return inf.id === dataItem.ooj_infection;
+                });
+                return infection ? infection.name : "N/A";
+              },
+            },
+            {
+              field: "ooj_activity",
+              title: "OOJ Activity",
+              template: function (dataItem) {
+                if (
+                  !dataItem.ooj_activity ||
+                  dataItem.ooj_activity.length === 0
+                ) {
+                  return "No activities";
+                }
+                var activities = dataItem.ooj_activity.map(function (activityId) {
+                  var activity = oojActivityList.find(function (act) {
+                    return act.id === activityId;
+                  });
+                  return activity ? activity.name : "N/A";
+                });
+                return activities.join(", ");
+              },
+            },
+              {
+            field: "accept_and_investigate_last_date_of_exposure",
+            title: "Last Date of Exposure",
+          },
+          {
+            field: "dispositions_returned",
+            title: "Dispositions Returned",
+          },
+          { field: "information_returned", title: "Information Returned" },
+          { field: "accept_and_investigate", title: "Accept and Investigate" },
+                  {
+      field: "method_of_transmitting",
+      title: "Method of Transmitting",
+   
+      template: function (dataItem) {
+          if (!dataItem.method_of_transmitting || dataItem.method_of_transmitting.length === 0) {
+              return "No Methods of Transmission";
+          }
+  
+          var transmissions = dataItem.method_of_transmitting.map(function (transmissionId) {
+              var methodOfTransmission = methodsOfTransmissionList.find(function (method) {
+                  return method.id === transmissionId;
+              });
+              return methodOfTransmission ? methodOfTransmission.name : "N/A";
+          });
+          return transmissions.join(", ");
+      }
+  },
+            {field: "confidential_email", title: "Confidential Email"},
+            {field: "confidential_phone", title: "Confidential Phone"},
+            {
+              field: "point_of_contacts",
+              title: "Point of Contact(s)",
+              template: function (dataItem) {
+                // Check if there are any point of contacts
+                if (
+                  !dataItem.point_of_contacts ||
+                  dataItem.point_of_contacts.length === 0
+                ) {
+                  return "No contacts";
+                }
+  
+                // Map the IDs to names using jurisdictionUsersList
+                var contactNames = dataItem.point_of_contacts.map(function (
+                  contactId
+                ) {
+                  var user = jurisdictionUsersList.find(function (user) {
+                    return user.id === contactId;
+                  });
+                  return user ? user.name : "ID: " + contactId + " (Unknown)";
+                });
+  
+                return contactNames.join(", ");
+              },
+            },
+            {field: "notes", title: "Notes"},
+          ],
+          sortable: true,
+          pageable: true,
+          height: 550,
+        });
+      }
+  
+      var grid = $("#oojJurisdictionGrid").data("kendoGrid");
+      grid.bind("excelExport", function (e) {
+        var sheet = e.workbook.sheets[0];
+        for (var rowIndex = 1; rowIndex < sheet.rows.length; rowIndex++) {
+          var row = sheet.rows[rowIndex];
+          var dataItem = grid.dataSource.at(rowIndex - 1);
+  
+          // Custom handling for OOJ Infection
+          var infection = oojInfectionList.find(function (inf) {
+            return inf.id === dataItem.ooj_infection;
+          });
+          row.cells[1].value = infection ? infection.name : "N/A";
+  
+          // Custom handling for OOJ Activity
+          var activities = dataItem.ooj_activity.map(function (activityId) {
+            var activity = oojActivityList.find(function (act) {
+              return act.id === activityId;
+            });
+            return activity ? activity.name : "N/A";
+          });
+          row.cells[2].value = activities.join(", ");
+  
+          // Custom handling for Point of Contacts
+          var contactNames = dataItem.point_of_contacts.map(function (contactId) {
+            var user = jurisdictionUsersList.find(function (user) {
+              return user.id === contactId;
+            });
+            return user ? user.name : "ID: " + contactId + " (Unknown)";
+          });
+          row.cells[5].value = contactNames.join(", ");
+        }
+      });
+  
+      console.log("OOJ Grid initialized/updated successfully");
+    }
+  
+    function initializeContactGrid() {
+      console.log("Initializing empty Contact Grid");
+      contactGrid = $("#contactGrid")
+        .kendoGrid({
+          dataSource: new kendo.data.DataSource({
+            data: [], // Start with an empty array
+            schema: {
+              model: {
+                fields: {
+                  "acf.acf_jurisdiction": {type: "number"},
+                  "acf.hiv_role": {type: "object"},
+                  "acf.sti_role": {type: "object"},
+                  first_name: {type: "string"},
+                  last_name: {type: "string"},
+                  email: {type: "string"},
+                  "acf.phone_user": {type: "string"},
+                  "acf.fax_user": {type: "string"},
+                  "acf.notes_sti_hiv": {type: "string"},
+                },
+              },
+            },
+          }),
+          toolbar: ["excel"], // Add Excel export button to toolbar
+          excel: {
+            fileName: "STD_Contact_Board_Export.xlsx",
+            filterable: true,
+            allPages: true,
+          },
+          columns: [
+            {
+              field: "acf.user_jurisdiction",
+              title: "Jurisdiction",
+              template: function (dataItem) {
+                return getJurisdictionName(dataItem.acf.user_jurisdiction);
+              },
+            },
+            {
+              field: "acf.hiv_role",
+              title: "HIV Role",
+              template: "#= formatRoles(data['acf.hiv_role'], hivRoleList) #",
+            },
+            {
+              field: "acf.sti_role",
+              title: "STI Role",
+              template: "#= formatRoles(data['acf.sti_role'], stiRoleList) #",
+            },
+            {field: "first_name", title: "First Name"},
+            {field: "last_name", title: "Last Name"},
+            {field: "email", title: "Email"},
+            {field: "acf.phone_user", title: "Phone"},
+            {field: "acf.fax_user", title: "Fax"},
+            {field: "acf.notes_sti_hiv", title: "Notes STI/HIV"},
+          ],
+          sortable: true,
+          pageable: true,
+          height: 350,
+          dataBound: function () {
+            console.log("Contact Grid data bound");
+          },
+        })
+        .data("kendoGrid");
+  
+      contactGrid.bind("excelExport", function (e) {
+        var sheet = e.workbook.sheets[0];
+        for (var rowIndex = 1; rowIndex < sheet.rows.length; rowIndex++) {
+          var row = sheet.rows[rowIndex];
+          var dataItem = contactGrid.dataSource.at(rowIndex - 1);
+  
+          // Custom handling for jurisdiction
+          row.cells[0].value = getJurisdictionName(
+            dataItem.acf.user_jurisdiction
+          );
+  
+          // Custom handling for HIV and STI roles
+          row.cells[1].value = formatRoles(dataItem.acf.hiv_role, hivRoleList);
+          row.cells[2].value = formatRoles(dataItem.acf.sti_role, stiRoleList);
+        }
+      });
+  
+      console.log("Empty Contact Grid initialized", contactGrid);
+    }
+    function updateJurisdictionGridForAll() {
+      jurisdictionGrid.dataSource.data([
+        {
+          title: "N/A",
+          fips_code: "N/A",
+          agency_name: "N/A",
+          address_jurisdiction: "N/A",
+          phone_jurisdiction: "N/A",
+          modified: "0000-00-00T00:00:00",
+        },
+      ]);
+    }
+  
+    function updateJurisdictionGrid(jurisdictionId) {
+      $.ajax({
+        url: `${baseJurisdictionUrl}/${jurisdictionId}?_fields=title,modified,acf`,
+        dataType: "json",
+        xhrFields: {withCredentials: true},
+        beforeSend: function (xhr) {
+          xhr.setRequestHeader("X-WP-Nonce", wpApiSettings.nonce);
+        },
+        success: function (data) {
+          console.log("Jurisdiction details fetched successfully:", data);
+          jurisdictionGrid.dataSource.data([
+            {
+              title: data.title.rendered,
+              fips_code: data.acf.fips_code || "N/A",
+              agency_name: data.acf.agency_name,
+              address_jurisdiction: data.acf.address_jurisdiction,
+              phone_jurisdiction: data.acf.phone_jurisdiction,
+              modified: data.modified,
+            },
+          ]);
+        },
+        error: function (error) {
+          console.error("Error fetching jurisdiction details:", error);
+        },
+      });
+    }
+  
+    function updateOojGridForAll() {
+      $.ajax({
+        url: allJurisdictionList,
+        dataType: "json",
+        xhrFields: {withCredentials: true},
+        beforeSend: function (xhr) {
+          xhr.setRequestHeader("X-WP-Nonce", wpApiSettings.nonce);
+        },
+        success: function (data) {
+          console.log("All OOJ details fetched successfully:", data);
+          var allOojDetails = [];
+          data.forEach(function (jurisdiction) {
+            if (jurisdiction.acf.ooj_details) {
+              jurisdiction.acf.ooj_details.forEach(function (oojDetail) {
+                allOojDetails.push({
+                  jurisdiction: jurisdiction.title.rendered,
+                  ...oojDetail,
+                });
+              });
+            }
+          });
+          oojJurisdictionGrid.dataSource.data(allOojDetails);
+        },
+        error: function (error) {
+          console.error("Error fetching all OOJ details:", error);
+        },
+      });
+    }
+  
+    function updateOojGrid(jurisdictionId) {
+      $.ajax({
+        url: `${baseJurisdictionUrl}/${jurisdictionId}?_fields=title,acf`,
+        dataType: "json",
+        xhrFields: {withCredentials: true},
+        beforeSend: function (xhr) {
+          xhr.setRequestHeader("X-WP-Nonce", wpApiSettings.nonce);
+        },
+        success: function (data) {
+          var oojDetails = data.acf.ooj_details || [];
+          oojDetails = oojDetails.map((detail) => ({
+            jurisdiction: data.title.rendered,
+            ...detail,
+          }));
+          oojJurisdictionGrid.dataSource.data(oojDetails);
+        },
+        error: function (error) {
+          console.error("Error fetching OOJ details:", error);
+        },
+      });
+    }
+  
+    function updateContactGridForAll() {
+      console.log("Updating Contact Grid for ALL jurisdictions");
+  
+      if (!contactGrid || !contactGrid.dataSource) {
+        console.error("Contact Grid or its dataSource is not initialized");
+        return;
+      }
+  
+      contactGrid.dataSource.transport.options =
+        contactGrid.dataSource.transport.options || {};
+      contactGrid.dataSource.transport.options.data =
+        contactGrid.dataSource.transport.options.data || {};
+      contactGrid.dataSource.transport.options.data.jurisdictionId = "ALL";
+  
+      console.log(
+        "Contact Grid dataSource updated for ALL",
+        contactGrid.dataSource.transport.options
+      );
+  
+      contactGrid.dataSource.read();
+    }
+  
+    function updateContactGrid(jurisdictionId) {
+      console.log("Updating Contact Grid for jurisdiction ID:", jurisdictionId);
+  
+      if (!contactGrid || !contactGrid.dataSource) {
+        console.error("Contact Grid or its dataSource is not initialized");
+        return;
+      }
+  
+      var url =
+        jurisdictionId === "ALL"
+          ? ContactsUrlForAll
+          : baseUserUrlForFilter + jurisdictionId;
+  
+      contactGrid.dataSource.transport.read = function (options) {
+        $.ajax({
+          url: url,
+          dataType: "json",
+          xhrFields: {withCredentials: true},
+          beforeSend: function (xhr) {
+            console.log("Setting X-WP-Nonce header for contact data request");
+            xhr.setRequestHeader("X-WP-Nonce", wpApiSettings.nonce);
+          },
+          success: function (result) {
+            console.log("Contact data fetched successfully", result);
+            // Log the first item to see its structure
+            if (result.length > 0) {
+              console.log("First contact item:", result[0]);
+              console.log(
+                "Jurisdiction ID of first item:",
+                result[0].acf.user_jurisdiction
+              );
+            }
+            options.success(result);
+          },
+          error: function (xhr, status, error) {
+            console.error("Error fetching contact data:", error);
+            options.error(xhr, status, error);
+          },
+        });
+      };
+  
+      console.log("Contact Grid dataSource updated, fetching from URL:", url);
+  
+      contactGrid.dataSource.read();
+    }
+    function getJurisdictionName(jurisdictionId) {
+      console.log("Getting jurisdiction name for ID:", jurisdictionId);
+      if (!jurisdictionId) {
+        console.log("No jurisdiction ID provided");
+        return "N/A";
+      }
+      var jurisdiction = allJurisdictionList.find(
+        (j) => j.id === parseInt(jurisdictionId, 10)
+      );
+      var name = jurisdiction ? jurisdiction.title.rendered : "Unknown";
+      console.log("Jurisdiction name:", name);
+      return name;
+    }
+  
+    function formatRoles(roleIds, roleList) {
+      console.log("Formatting roles", roleIds);
+      if (!roleIds || roleIds.length === 0) {
+        console.log("No roles assigned");
+        return "No role assigned";
+      }
+      var formattedRoles = roleIds
+        .map((id) => {
+          var role = roleList.find((r) => r.id === id);
+          return role ? role.name : "Unknown Role";
+        })
+        .join(", ");
+      console.log("Formatted roles:", formattedRoles);
+      return formattedRoles;
+    }
+    function getJSONfromUrl(url) {
+      return new Promise((resolve, reject) => {
+        $.ajax({
+          url: url,
+          type: "GET",
+          dataType: "json",
+          xhrFields: {
+            withCredentials: true,
+          },
+          beforeSend: function (xhr) {
+            console.log(
+              "Setting X-WP-Nonce header for getting information request"
+            );
+            xhr.setRequestHeader("X-WP-Nonce", wpApiSettings.nonce);
+          },
+          success: function (data) {
+            resolve(data); // Resolve the promise with the data
+          },
+          error: function (xhr, status, error) {
+            reject(error); // Reject the promise with the error
+          },
+        });
+      });
+    }
+  </script>
+  
