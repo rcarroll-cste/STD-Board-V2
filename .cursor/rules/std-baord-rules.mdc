@@ -1,0 +1,13 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+
+# Your rule content
+
+- You can @ files here
+- You can use markdown but dont have to
+Use Kendo UI Functions where possible
+'date of last exposure' should have a taxtbox editor not a datepicker
+There is no 'arrary' type for kendo, it would need to be 'object' in that case
