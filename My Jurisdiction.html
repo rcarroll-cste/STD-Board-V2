@@ -1,65 +1,843 @@
 <script>
-    // Add DOM ready check for grid elements
-    $(document).ready(function() {
-        console.log('Document ready, checking grid elements...');
-        console.log('Jurisdiction grid element exists:', $('#juris_grid').length > 0);
-        console.log('Contacts grid element exists:', $('#our-contacts').length > 0);
-        console.log('Jurisdiction grid element:', $('#juris_grid')[0]);
-        console.log('Contacts grid element:', $('#our-contacts')[0]);
+    /***********************************************************************
+     * My Jurisdiction Page - HSTD/OOJ Management Application
+     * 
+     * This application provides an interface for managing jurisdiction data,
+     * contacts, and out-of-jurisdiction (OOJ) details using GraphQL for data
+     * communication with the WordPress backend.
+     * 
+     * The page is organized with three main grids:
+     * 1. Jurisdiction Grid - Displays and allows editing of jurisdiction details
+     * 2. Contacts Grid - Shows users associated with the jurisdiction
+     * 3. OOJ Grid - Manages out-of-jurisdiction information
+     * 
+     * All data operations are performed via GraphQL API calls to the backend.
+     ***********************************************************************/
+
+    /***********************************************************************
+     * GRAPHQL QUERIES AND MUTATIONS
+     * Centralized location for all GraphQL operations to avoid duplication
+     ***********************************************************************/
+    const GraphQLQueries = {
+        // User and Jurisdiction Queries
+        currentUserJurisdiction: `
+            query CurrentUserJurisdiction {
+                viewer {
+                    stdContactDetails {
+                        userJurisdiction {
+                            nodes {
+                                databaseId
+                            }
+                        }
+                    }
+                }
+            }
+        `,
         
-        initializeApplication();
-    });
+        getUsersByJurisdiction: `
+            query GetUsersByJurisdiction($jurisdictionId: Int!) {
+                users(where: {jurisdictionDatabaseId: $jurisdictionId}) {
+                    nodes {
+                        databaseId
+                        firstName
+                        lastName
+                        email
+                        stdContactDetails {
+                            userJurisdiction {
+                                nodes {
+                                    databaseId
+                                }
+                            }
+                            hivRole {
+                                nodes {
+                                    databaseId
+                                    name
+                                }
+                            }
+                            stiRole {
+                                nodes {
+                                    databaseId
+                                    name
+                                }
+                            }
+                            userPhone
+                            userFax
+                            notesStiHiv
+                        }
+                    }
+                }
+            }
+        `,
+        
+        getJurisdictionUsers: `
+            query GetJurisdictionUsers($jurisdictionId: Int!) {
+                users(where: { jurisdictionDatabaseId: $jurisdictionId }) {
+                    nodes {
+                        databaseId
+                        firstName
+                        lastName
+                    }
+                }
+            }
+        `,
+        
+        // Role Queries
+        getRoleLists: `
+            query GetRoleLists {
+                hIVRoles {
+                    nodes {
+                        databaseId
+                        name
+                    }
+                }
+                sTIRoles {
+                    nodes {
+                        databaseId
+                        name
+                    }
+                }
+            }
+        `,
+        
+        getHIVRoles: `
+            query GetHIVRoles {
+                hIVRoles {
+                    nodes {
+                        databaseId
+                        name
+                        slug
+                    }
+                }
+            }
+        `,
+        
+        getSTIRoles: `
+            query GetSTIRoles {
+                sTIRoles {
+                    nodes {
+                        databaseId
+                        name
+                        slug
+                    }
+                }
+            }
+        `,
+        
+        // Completely updated OOJ query with proper sub-selections
+        getOOJData: `
+            query GetOOJData($jurisdictionId: ID!) {
+                jurisdiction(id: $jurisdictionId, idType: DATABASE_ID) {
+                    databaseId
+                    title
+                    oojJurisdictionDetails {
+                        oojDetails {
+                            oojId
+                            oojInfection {
+                                nodes {
+                                    databaseId
+                                    name
+                                }
+                            }
+                            oojActivity {
+                                nodes {
+                                    databaseId
+                                    name
+                                }
+                            }
+                            lastDateOfExposure
+                            dispositionsReturned
+                            methodOfTransmitting {
+                                nodes {
+                                    databaseId
+                                    name
+                                }
+                            }
+                            acceptable_for_pii {
+                                nodes {
+                                    databaseId
+                                    name
+                                }
+                            }
+                            notes
+                            point_of_contacts {
+                                nodes {
+                                    databaseId
+                                    firstName
+                                    lastName
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        `,
+        getUserJurisdiction: `
+            query GetUserJurisdiction {
+                viewer {
+                    stdContactDetails {
+                        userJurisdiction {
+                            nodes {
+                                ... on Jurisdiction {
+                                    databaseId
+                                    title
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        `
+    };
 
-    // Update initializeApplication to check grid elements
-    async function initializeApplication() {
+    const GraphQLMutations = {
+        // User Mutations
+        updateUser: `
+            mutation UpdateUser($input: UpdateUserInput!) {
+                updateUser(input: $input) {
+                    user {
+                        databaseId
+                        firstName
+                        lastName
+                    }
+                }
+            }
+        `,
+        
+        createUser: `
+            mutation CreateUser($input: CreateUserInput!) {
+                createUser(input: $input) {
+                    user {
+                        databaseId
+                        firstName
+                        lastName
+                    }
+                }
+            }
+        `,
+        
+        // OOJ Mutations
+        updateOOJData: `
+            mutation UpdateOOJDetails($input: UpdateOOJDetailsInput!) {
+                updateOOJDetails(input: $input) {
+                    clientMutationId
+                }
+            }
+        `,
+        
+        createOOJData: `
+            mutation CreateOOJData($input: UpdateOOJDetailsInput!) {
+                updateOOJDetails(input: $input) {
+                    clientMutationId
+                }
+            }
+        `,
+        
+        deleteOOJData: `
+            mutation DeleteOOJData($input: DeleteOojDataInput!) {
+                deleteOojData(input: $input) {
+                    deletedId
+                }
+            }
+        `
+    };
+
+    /***********************************************************************
+     * UTILITY FUNCTIONS
+     * Common helper functions used throughout the application
+     ***********************************************************************/
+    
+    /**
+     * Execute an async operation with standard error handling
+     * @param {Function} operation Function to execute
+     * @param {string} errorMessage User-friendly error message
+     * @param {Function} onSuccess Optional success callback
+     * @param {Function} onError Optional error callback for custom error handling
+     * @returns {Promise<any>} The result of the operation, or null on error
+     */
+    async function withErrorHandling(operation, errorMessage, onSuccess, onError) {
         try {
-            // Check if grid elements exist before proceeding
-            if (!$('#juris_grid').length || !$('#our-contacts').length || !$('#ooj_juris').length) {
-                throw new Error('Grid elements not found in DOM');
-            }
-
-            const jurisdictionId = await getCurrentUserJurisdiction();
-            if (jurisdictionId) {
-                console.log('Initializing grids for jurisdiction:', jurisdictionId);
-                
-                // Initialize the jurisdiction grid
-                await initializeJurisdictionDatasource(jurisdictionId);
-                
-                // Initialize the contacts grid
-                const contactsDataSource = initializeContactsDataSource(jurisdictionId);
-                await initializeContactsGrid(contactsDataSource);
-                
-                // Initialize the OOJ grid
-                await initializeOOJGrid(jurisdictionId);
-                
-                console.log('All grids initialized successfully');
-            } else {
-                throw new Error('No jurisdiction found for current user');
-            }
+            const result = await operation();
+            if (onSuccess) onSuccess(result);
+            return result;
         } catch (error) {
-            console.error('Error initializing application:', error);
-            showNotification('Failed to initialize application: ' + error.message);
+            console.error(errorMessage, error);
+            showNotification(errorMessage);
+            if (onError) onError(error);
+            return null;
         }
     }
 
+    /**
+     * Helper function to show notifications
+     * @param {string} message The message to display
+     * @param {string} type The notification type (error, success, info, warning)
+     */
+    function showNotification(message, type = 'error') {
+        if (window.kendo && kendo.ui.Notification) {
+            const notification = $("<div/>").appendTo("body").kendoNotification({
+                position: {
+                    pinned: true,
+                    top: 30,
+                    right: 30
+                },
+                autoHideAfter: 5000,
+                stacking: "down",
+                templates: [{
+                    type: "error",
+                    template: "<div class='notification-error'><span class='k-icon k-i-error'></span>#= message #</div>"
+                }, {
+                    type: "success",
+                    template: "<div class='notification-success'><span class='k-icon k-i-success'></span>#= message #</div>"
+                }, {
+                    type: "warning",
+                    template: "<div class='notification-warning'><span class='k-icon k-i-warning'></span>#= message #</div>"
+                }]
+            }).data("kendoNotification");
+
+            notification.show({ message: message }, type);
+        } else {
+            console.error('Kendo UI Notification not available, message:', message);
+            alert(message); // Fallback to basic alert if Kendo isn't loaded
+        }
+    }
+
+    /**
+     * Helper function for making GraphQL requests with retry capability
+     * @param {string} query GraphQL query or mutation string
+     * @param {Object} variables Variables to pass to the GraphQL operation
+     * @param {number} retryCount Current retry attempt (for recursive retry)
+     * @returns {Promise<Object>} The GraphQL response
+     */
+    async function makeGraphQLRequest(query, variables = {}, retryCount = 0) {
+        try {
+            const maxRetries = 3;
+            
+            // Safely log the query by checking if it's a string first
+            const queryPreview = typeof query === 'string' ? 
+                (query.length > 100 ? query.substring(0, 100) + '...' : query) : 
+                'Invalid query format';
+                
+            console.log('Making GraphQL request:', {
+                query: queryPreview,
+                variables: JSON.stringify(variables, null, 2)
+            });
+            
+            // Ensure query is defined before proceeding
+            if (!query || typeof query !== 'string') {
+                throw new Error('Invalid GraphQL query: Query must be a non-empty string');
+            }
+            
+            const response = await fetch('https://hivstiooj.cste.org/graphql', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    query,
+                    variables
+                })
+            });
+
+            // Always try to get the response text
+            const responseText = await response.text();
+            console.log('GraphQL response text:', responseText);
+            
+            // Handle non-200 responses
+            if (!response.ok) {
+                console.error('GraphQL request failed with status:', response.status);
+                console.error('Error details:', responseText);
+                
+                // For 500 errors, log more details to help debug
+                if (response.status === 500) {
+                    console.error('Server error processing GraphQL request. Query:', query);
+                    console.error('Variables:', JSON.stringify(variables, null, 2));
+                }
+                
+                // Attempt retry for server errors (500s)
+                if (response.status >= 500 && retryCount < maxRetries) {
+                    console.log(`Retrying request (${retryCount + 1}/${maxRetries})...`);
+                    // Exponential backoff - wait longer between each retry
+                    const backoffTime = Math.pow(2, retryCount) * 1000;
+                    await new Promise(resolve => setTimeout(resolve, backoffTime));
+                    return makeGraphQLRequest(query, variables, retryCount + 1);
+                }
+                
+                throw new Error(`GraphQL request failed: ${response.status} ${response.statusText}`);
+            }
+
+            // Parse the JSON response
+            let result;
+            try {
+                result = JSON.parse(responseText);
+            } catch (e) {
+                console.error('Error parsing GraphQL response:', e);
+                throw new Error('Invalid JSON response from GraphQL server');
+            }
+            
+            // Check for GraphQL errors in the response
+            if (result.errors && result.errors.length) {
+                console.error('GraphQL errors:', result.errors);
+                throw new Error(`GraphQL errors: ${result.errors.map(e => e.message).join(', ')}`);
+            }
+            
+            console.log('GraphQL request successful, data:', result);
+            return result;
+        } catch (error) {
+            console.error('Error in GraphQL request:', error);
+            
+            // Attempt retry for network errors
+            if (error.message.includes('Failed to fetch') && retryCount < 3) {
+                console.log(`Network error, retrying (${retryCount + 1}/3)...`);
+                const backoffTime = Math.pow(2, retryCount) * 1000;
+                await new Promise(resolve => setTimeout(resolve, backoffTime));
+                return makeGraphQLRequest(query, variables, retryCount + 1);
+            }
+            
+            throw error;
+        }
+    }
+
+    /**
+     * Creates a GraphQL-powered data transport for Kendo DataSource
+     * @param {Object} config Transport configuration
+     * @param {string} config.readQuery GraphQL query for reading data
+     * @param {Object} config.readVariables Variables for the read query
+     * @param {Function} config.readTransform Function to transform read results
+     * @param {string} config.updateMutation GraphQL mutation for updating
+     * @param {Function} config.updateVariablesBuilder Function to build update variables
+     * @param {string} config.createMutation GraphQL mutation for creating
+     * @param {Function} config.createVariablesBuilder Function to build create variables
+     * @param {string} config.deleteMutation GraphQL mutation for deleting
+     * @param {Function} config.deleteVariablesBuilder Function to build delete variables
+     * @returns {Object} Kendo DataSource transport object
+     */
+    function createGraphQLTransport(config) {
+        return {
+            read: async (options) => {
+                try {
+                    console.log('Transport read operation with:', config.readVariables);
+                    
+                    const result = await makeGraphQLRequest(
+                        config.readQuery, 
+                        typeof config.readVariables === 'function' 
+                            ? config.readVariables(options) 
+                            : config.readVariables
+                    );
+                    
+                    // Transform the data if a transform function is provided
+                    const transformedData = config.readTransform 
+                        ? config.readTransform(result, options)
+                        : result.data;
+                    
+                    console.log('Transformed read data:', transformedData);
+                    options.success(transformedData);
+                } catch (error) {
+                    console.error('Read operation failed:', error);
+                    options.error(error);
+                    showNotification('Failed to load data: ' + error.message);
+                }
+            },
+            
+            update: async (options) => {
+                if (!config.updateMutation || !config.updateVariablesBuilder) {
+                    console.warn('Update operation not configured');
+                    options.success(options.data);
+                    return;
+                }
+                
+                try {
+                    console.log('Transport update operation with model:', options.data);
+                    
+                    const variables = config.updateVariablesBuilder(options.data);
+                    console.log('Update variables:', variables);
+                    
+                    const result = await makeGraphQLRequest(config.updateMutation, variables);
+                    console.log('Update operation result:', result);
+                    
+                    const updatedData = config.updateTransform 
+                        ? config.updateTransform(result, options.data)
+                        : options.data;
+                    
+                    options.success(updatedData);
+                    showNotification('Item updated successfully', 'success');
+                } catch (error) {
+                    console.error('Update operation failed:', error);
+                    options.error(error);
+                    showNotification('Failed to update item: ' + error.message);
+                }
+            },
+            
+            create: async (options) => {
+                if (!config.createMutation || !config.createVariablesBuilder) {
+                    console.warn('Create operation not configured');
+                    options.success(options.data);
+                    return;
+                }
+                
+                try {
+                    console.log('Transport create operation with model:', options.data);
+                    
+                    // Check if required fields have values
+                    console.log('Model field values:');
+                    for (const field in options.data) {
+                        console.log(`- ${field}: ${JSON.stringify(options.data[field])}`);
+                    }
+                    
+                    const variables = config.createVariablesBuilder(options.data);
+                    console.log('Create variables prepared:', variables);
+                    
+                    // Log the GraphQL mutation being used
+                    console.log('Using create mutation:', config.createMutation);
+                    
+                    const result = await makeGraphQLRequest(config.createMutation, variables);
+                    console.log('Create operation result:', result);
+                    
+                    // Check for error details in the response
+                    if (result.errors) {
+                        console.error('GraphQL errors in create operation:', result.errors);
+                        let errorMessage = 'Failed to create item: ';
+                        errorMessage += result.errors.map(err => err.message).join('; ');
+                        showNotification(errorMessage);
+                        throw new Error(errorMessage);
+                    }
+                    
+                    const createdData = config.createTransform 
+                        ? config.createTransform(result, options.data)
+                        : options.data;
+                    
+                    console.log('Transformed created data:', createdData);
+                    
+                    options.success(createdData);
+                    showNotification('Item created successfully', 'success');
+                } catch (error) {
+                    console.error('Create operation failed:', error);
+                    console.error('Error details:', {
+                        message: error.message,
+                        stack: error.stack,
+                        model: options.data,
+                        config: {
+                            createMutation: config.createMutation ? 'Configured' : 'Missing',
+                            createVariablesBuilder: config.createVariablesBuilder ? 'Configured' : 'Missing',
+                            createTransform: config.createTransform ? 'Configured' : 'Missing'
+                        }
+                    });
+                    options.error(error);
+                    showNotification('Failed to create item: ' + error.message);
+                }
+            },
+            
+            destroy: async (options) => {
+                if (!config.deleteMutation || !config.deleteVariablesBuilder) {
+                    console.warn('Delete operation not configured');
+                    options.success(options.data);
+                    return;
+                }
+                
+                try {
+                    console.log('Transport delete operation with model:', options.data);
+                    
+                    const variables = config.deleteVariablesBuilder(options.data);
+                    console.log('Delete variables:', variables);
+                    
+                    const result = await makeGraphQLRequest(config.deleteMutation, variables);
+                    console.log('Delete operation result:', result);
+                    
+                    options.success(options.data);
+                    showNotification('Item deleted successfully', 'success');
+                } catch (error) {
+                    console.error('Delete operation failed:', error);
+                    options.error(error);
+                    showNotification('Failed to delete item: ' + error.message);
+                }
+            }
+        };
+    }
+
+    /**
+     * Creates a standardized Kendo UI Grid with common configurations
+     * @param {string|jQuery} element The element or selector for the grid
+     * @param {Object} config Grid configuration
+     * @param {Object} config.dataSource The Kendo DataSource for the grid
+     * @param {Array} config.columns Array of column definitions
+     * @param {Object} config.toolbar Toolbar configuration (array of items or boolean)
+     * @param {string} config.editable Edit mode ('inline', 'popup', or false)
+     * @param {boolean} config.pageable Whether to enable paging
+     * @param {number} config.height Grid height in pixels
+     * @param {Function} config.dataBound Event handler for the dataBound event
+     * @param {Object} config.schema Model schema definition
+     * @returns {Object} The initialized Kendo UI Grid
+     */
+    function createKendoGrid(element, config) {
+        console.log('Creating Kendo grid with config:', config);
+        
+        // Default configuration
+        const defaultConfig = {
+            pageable: true,
+            height: 550,
+            editable: 'inline',
+            toolbar: ['create', 'save', 'cancel'],
+            save: function(e) {
+                console.log('Save event triggered:', e);
+                
+                // Track the save type (create vs update)
+                const isNewItem = e.model.isNew && e.model.isNew();
+                console.log('Is new item being saved?', isNewItem);
+                
+                // Call the original save function
+                const originalSave = config.save || function() {};
+                originalSave.call(this, e);
+                
+                // Add a manual refresh after successful save
+                if (e.model) {
+                    setTimeout(() => {
+                        try {
+                            this.dataSource.read();
+                            
+                            // Log success message with operation type
+                            console.log(`Grid ${isNewItem ? 'creation' : 'update'} operation completed successfully`);
+                        } catch (err) {
+                            console.error('Error refreshing grid after save:', err);
+                        }
+                    }, 500);
+                }
+            },
+            dataBound: function(e) {
+                console.log('Grid data bound event triggered');
+            }
+        };
+        
+        // Merge default config with provided config
+        const mergedConfig = { ...defaultConfig, ...config };
+        
+        // Initialize the grid
+        const grid = $(element).kendoGrid(mergedConfig).data('kendoGrid');
+        
+        console.log('Grid initialized:', grid);
+        return grid;
+    }
+
+    /**
+     * Initializes the grid's data source for users in a jurisdiction
+     * @param {string} jurisdictionId The ID of the jurisdiction to load users for
+     * @returns {Promise<kendo.data.DataSource>} The initialized data source
+     */
+    async function initializeJurisdictionDatasource(jurisdictionId) {
+        console.log('Initializing jurisdiction data source for:', jurisdictionId);
+
+        try {
+            // Fetch initial data using GraphQL
+            const result = await makeGraphQLRequest(GraphQLQueries.getUsersByJurisdiction, { jurisdictionId });
+            const initialData = result.data.usersByJurisdiction || [];
+            
+            console.log('Initial user data loaded:', initialData);
+            
+            // Create a data source with the GraphQL transport
+            const dataSource = new kendo.data.DataSource({
+                data: initialData,
+                schema: {
+                    model: {
+                        id: "userId",
+                        fields: {
+                            userId: { editable: false, nullable: false },
+                            firstName: { validation: { required: true } },
+                            lastName: { validation: { required: true } },
+                            email: { type: "string", validation: { required: true } },
+                            roles: { defaultValue: [] },
+                            oojroles: { defaultValue: [] },
+                            contacts: { defaultValue: [] }
+                        }
+                    }
+                },
+                transport: createGraphQLTransport({
+                    readQuery: GraphQLQueries.getUsersByJurisdiction,
+                    readVariables: { jurisdictionId },
+                    readTransform: (result) => result.data.usersByJurisdiction || [],
+                    
+                    updateMutation: GraphQLQueries.updateUserRoles,
+                    updateVariablesBuilder: (model) => ({
+                        userId: model.userId,
+                        jurisdictionId: jurisdictionId,
+                        roles: model.roles || [],
+                        oojroles: model.oojroles || [],
+                        contacts: model.contacts || []
+                    }),
+                })
+            });
+            
+            console.log('Jurisdiction data source configured');
+            return dataSource;
+        } catch (error) {
+            console.error('Error initializing jurisdiction data source:', error);
+            showNotification('Failed to load user data. Please try again later.');
+            throw error;
+        }
+    }
+
+    /**
+     * Initialize the Kendo UI grid for the Jurisdiction Users
+     * @param {string} jurisdictionId ID of the jurisdiction to load users for
+     */
+    async function initializeJurisdictionGrid(jurisdictionId) {
+        console.log('Initializing jurisdiction grid for:', jurisdictionId);
+        
+        try {
+            // Initialize the data source
+            const dataSource = await initializeJurisdictionDatasource(jurisdictionId);
+            
+            // Fetch role data for editors - use the correct getRoleLists query
+            console.log('Fetching role data for jurisdiction grid...');
+            const roleResult = await makeGraphQLRequest(GraphQLQueries.getRoleLists);
+            const hivRoles = roleResult.data.hIVRoles.nodes;
+            const stiRoles = roleResult.data.sTIRoles.nodes;
+            console.log('Role data loaded successfully');
+            
+            // Create the grid using our utility function
+            createKendoGrid('#userGrid', {
+                dataSource: dataSource,
+                columns: [
+                    { field: "firstName", title: "First Name", width: "150px" },
+                    { field: "lastName", title: "Last Name", width: "150px" },
+                    { field: "email", title: "Email", width: "200px" },
+                    { 
+                        field: "roles", 
+                        title: "Roles", 
+                        width: "200px",
+                        editor: createMultiSelectEditor({
+                            type: 'Roles',
+                            dataSource: hivRoles,
+                            textField: 'name',
+                            valueField: 'databaseId'
+                        })
+                    },
+                    { 
+                        field: "oojroles", 
+                        title: "Out of Jurisdiction Roles", 
+                        width: "200px",
+                        editor: createMultiSelectEditor({
+                            type: 'OOJ Roles',
+                            dataSource: stiRoles,
+                            textField: 'name',
+                            valueField: 'databaseId'
+                        })
+                    },
+                    { 
+                        field: "contacts", 
+                        title: "Contacts", 
+                        width: "200px",
+                        editor: createMultiSelectEditor({
+                            type: 'Contacts',
+                            dataSource: async () => {
+                                // Fetch users for the jurisdiction to use as contacts
+                                const result = await makeGraphQLRequest(
+                                    GraphQLQueries.getUsersByJurisdiction, 
+                                    { jurisdictionId: parseInt(jurisdictionId) }
+                                );
+                                return result.data.users.nodes || [];
+                            },
+                            textField: 'lastName',
+                            valueField: 'databaseId'
+                        })
+                    },
+                    { command: ["edit"], title: "&nbsp;", width: "250px" }
+                ],
+                editable: "inline",
+                dataBound: function() {
+                    console.log("Grid data bound event fired");
+                }
+            });
+            
+            console.log('Jurisdiction grid initialized successfully');
+        } catch (error) {
+            console.error('Failed to initialize jurisdiction grid:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Main application initialization
+     */
+    async function initializeApplication() {
+        console.log('Initializing application...');
+        
+        try {
+            // Get the user's jurisdiction from GraphQL
+            const result = await withErrorHandling(
+                () => makeGraphQLRequest(GraphQLQueries.getUserJurisdiction),
+                'Failed to load your jurisdiction information'
+            );
+            
+            if (!result) return;
+            
+            const jurisdictionNode = result.data?.viewer?.stdContactDetails?.userJurisdiction?.nodes?.[0];
+            const jurisdictionId = jurisdictionNode?.databaseId;
+            const jurisdictionName = jurisdictionNode?.title || 'Unknown Jurisdiction';
+            
+            console.log('User jurisdiction loaded:', { jurisdictionId, jurisdictionName });
+            
+            if (!jurisdictionId) {
+                showNotification('Your account does not have an associated jurisdiction. Please contact support.', 'warning');
+                return;
+            }
+            
+            // Update the header with the jurisdiction name
+            $('#jurisdictionName').text(jurisdictionName);
+            
+            // Initialize all grids
+            console.log('Initializing all grids for jurisdiction ID:', jurisdictionId);
+            
+            // Initialize all grids in parallel for better performance
+            await Promise.all([
+                // Initialize the jurisdiction grid
+                withErrorHandling(
+                    () => initializeJurisdictionGrid(jurisdictionId),
+                    'Failed to initialize jurisdiction grid'
+                ),
+                
+                // Initialize the contacts grid
+                withErrorHandling(async () => {
+                const contactsDataSource = initializeContactsDataSource(jurisdictionId);
+                await initializeContactsGrid(contactsDataSource);
+                    console.log('Contacts grid initialized successfully');
+                }, 'Failed to initialize contacts grid'),
+                
+                // Initialize the OOJ grid
+                withErrorHandling(
+                    () => initializeOOJGrid(jurisdictionId),
+                    'Failed to initialize OOJ grid'
+                )
+            ]);
+                
+                console.log('All grids initialized successfully');
+            
+            // Show a success notification
+            showNotification('Application initialized successfully', 'success');
+        } catch (error) {
+            console.error('Application initialization failed:', error);
+            showNotification('Application initialization failed. Please try refreshing the page.');
+        }
+    }
+    
+    /**
+     * Document ready handler
+     */
+    $(document).ready(function () {
+        console.log('Document ready, initializing application...');
+        
+        // Initialize our application
+        initializeApplication().catch(error => {
+            console.error('Critical error during initialization:', error);
+            showNotification('A critical error occurred. Please refresh the page and try again.');
+        });
+    });
+
+    /***********************************************************************
+     * CONTACTS GRID INITIALIZATION
+     ***********************************************************************/
     async function initializeContactsGrid(dataSource) {
         try {
             // First fetch the role lists
             console.log('Fetching role lists for grid initialization...');
-            const query = 'query GetRoleLists {\n' +
-                '    hIVRoles {\n' +
-                '        nodes {\n' +
-                '            databaseId\n' +
-                '            name\n' +
-                '        }\n' +
-                '    }\n' +
-                '    sTIRoles {\n' +
-                '        nodes {\n' +
-                '            databaseId\n' +
-                '            name\n' +
-                '        }\n' +
-                '    }\n' +
-                '}';
+            const query = GraphQLQueries.getRoleLists;
     
             const roleListsResult = await makeGraphQLRequest(query);
             console.log('Role lists received:', roleListsResult);
@@ -150,21 +928,12 @@
         }
     }
 
+    /***********************************************************************
+     * CURRENT USER JURISDICTION FETCHING
+     ***********************************************************************/
     // Get current user's jurisdiction using WPGraphQL
     async function getCurrentUserJurisdiction() {
-    const query = `
-        query CurrentUserJurisdiction {
-            viewer {
-                    stdContactDetails {
-                    userJurisdiction {
-                        nodes {
-                                databaseId
-                        }
-                    }
-                }
-            }
-        }
-    `;
+        const query = GraphQLQueries.currentUserJurisdiction;
 
     try {
             console.log('Fetching current user jurisdiction...');
@@ -183,24 +952,12 @@
         }
     }
 
+    /***********************************************************************
+     * USERS BY JURISDICTION FETCHING
+     ***********************************************************************/
     // Get all users from the same jurisdiction
     async function getUsersByJurisdiction(jurisdictionId) {
-        const query = `
-            query GetUsersByJurisdiction($jurisdictionId: Int!) {
-                users(where: {jurisdictionDatabaseId: $jurisdictionId}) {
-                    nodes {
-                        stdContactDetails {
-                            userJurisdiction {
-                                nodes {
-                                    id
-                                    databaseId
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        `;
+        const query = GraphQLQueries.getUsersByJurisdiction;
 
         try {
             console.log('Fetching users for jurisdiction:', jurisdictionId);
@@ -214,60 +971,9 @@
         }
     }
 
-    // Helper function for making GraphQL requests
-    async function makeGraphQLRequest(query, variables = {}) {
-        try {
-            console.log('Making GraphQL request with:', {
-                query: query,
-                variables: variables
-            });
-
-            const response = await fetch('https://hivstiooj.cste.org/graphql', {
-                method: 'POST',
-                credentials: 'include',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json'
-                },
-                body: JSON.stringify({
-                    query,
-                    variables
-                })
-            });
-
-            console.log('GraphQL response status:', response.status);
-            console.log('GraphQL response headers:', Object.fromEntries(response.headers.entries()));
-
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-
-            const result = await response.json();
-            console.log('GraphQL raw response:', result);
-
-            if (result.errors) {
-                console.error('GraphQL response contains errors:', result.errors);
-                console.error('Error details:', {
-                    message: result.errors[0].message,
-                    path: result.errors[0].path,
-                    locations: result.errors[0].locations,
-                    debugMessage: result.errors[0].debugMessage,
-                    extensions: result.errors[0].extensions
-                });
-                throw new Error(result.errors[0].message);
-            }
-
-            return result;
-        } catch (error) {
-            console.error('GraphQL request failed:', {
-                error: error,
-                message: error.message,
-                stack: error.stack
-            });
-            throw error;
-        }
-    }
-
+    /***********************************************************************
+     * JURISDICTION DATASOURCE INITIALIZATION
+     ***********************************************************************/
     function initializeJurisdictionDatasource(jurisdictionId) {
         console.log("Initializing grid with jurisdiction ID:", jurisdictionId);
 
@@ -296,7 +1002,7 @@
                             console.log('Reading jurisdiction data...', options);
                             const result = await makeGraphQLRequest(query, { id: jurisdictionId });
                             console.log('Read operation result:', result);
-                            
+
                             const jurisdiction = result.data.jurisdiction;
                             const transformedData = {
                                 id: jurisdictionId,
@@ -434,6 +1140,9 @@
         console.log("Grid initialized and data source set.");
     }
 
+    /***********************************************************************
+     * NOTIFICATION DISPLAY
+     ***********************************************************************/
     // Helper function to show notifications
     function showNotification(message, type = 'error') {
         if (window.kendo && kendo.ui.Notification) {
@@ -460,6 +1169,9 @@
         }
     }
 
+    /***********************************************************************
+     * CONTACTS DATASOURCE INITIALIZATION
+     ***********************************************************************/
     // Initialize contacts data source with GraphQL integration
     function initializeContactsDataSource(jurisdictionId) {
         console.log('Initializing contacts grid for jurisdiction:', jurisdictionId);
@@ -467,38 +1179,7 @@
         return new kendo.data.DataSource({
             transport: {
                 read: async (options) => {
-                    const query = 'query GetUsersByJurisdiction($jurisdictionId: Int!) {\n' +
-                        '    users(where: { jurisdictionDatabaseId: $jurisdictionId }) {\n' +
-                        '        nodes {\n' +
-                        '            databaseId\n' +
-                        '            firstName\n' +
-                        '            lastName\n' +
-                        '            email\n' +
-                        '            stdContactDetails {\n' +
-                        '                userJurisdiction {\n' +
-                        '                    nodes {\n' +
-                        '                        databaseId\n' +
-                        '                    }\n' +
-                        '                }\n' +
-                        '                hivRole {\n' +
-                        '                    nodes {\n' +
-                        '                        databaseId\n' +
-                        '                        name\n' +
-                        '                    }\n' +
-                        '                }\n' +
-                        '                stiRole {\n' +
-                        '                    nodes {\n' +
-                        '                        databaseId\n' +
-                        '                        name\n' +
-                        '                    }\n' +
-                        '                }\n' +
-                        '                userPhone\n' +
-                        '                userFax\n' +
-                        '                notesStiHiv\n' +
-                        '            }\n' +
-                        '        }\n' +
-                        '    }\n' +
-                        '}';
+                    const query = GraphQLQueries.getUsersByJurisdiction;
 
                     try {
                         console.log('Reading users data for jurisdiction:', jurisdictionId);
@@ -525,8 +1206,28 @@
                         options.success(transformedData);
                     } catch (error) {
                         console.error('Read operation failed:', error);
-                        options.error(error);
-                        showNotification('Failed to fetch users data');
+                        // Send an empty array when we get a server error instead of failing entirely
+                        // This allows the grid to initialize even with server issues
+                        console.log('Using fallback empty data for contacts grid due to server error');
+                        options.success([]);
+                        
+                        // Add a user-friendly message in the grid
+                        setTimeout(() => {
+                            const grid = $("#our-contacts").data("kendoGrid");
+                            if (grid) {
+                                if (grid.tbody.find('tr.k-no-data').length) {
+                                    grid.tbody.find('tr.k-no-data td').html(
+                                        '<div class="alert alert-warning">'+
+                                        '<strong>Server Error:</strong> Unable to load contact data. '+
+                                        'Please try refreshing the page or contact support if this persists.'+
+                                        '</div>'
+                                    );
+                                }
+                            }
+                        }, 100);
+                        
+                        // Show notification to user
+                        showNotification('Warning: Unable to load contact data due to a server issue');
                     }
                 },
                 update: async (options) => {
@@ -641,8 +1342,6 @@
                             '            email\n' +
                             '            firstName\n' +
                             '            lastName\n' +
-                            '        }\n' +
-                            '    }\n' +
                             '}';
 
                         const createResult = await makeGraphQLRequest(createUserMutation, { input: createUserInput });
@@ -750,26 +1449,12 @@
         });
     }
 
+    /***********************************************************************
+     * ROLE LISTS FETCHING
+     ***********************************************************************/
     // Function to fetch role lists
     async function fetchRoleLists() {
-        const query = `
-            query GetRoleLists {
-                hivRoles {
-                    nodes {
-                        id
-                        name
-                        databaseId
-                    }
-                }
-                stiRoles {
-                    nodes {
-                        id
-                        name
-                        databaseId
-                    }
-                }
-            }
-        `;
+        const query = GraphQLQueries.getRoleLists;
 
         try {
             console.log('Fetching role lists...');
@@ -777,11 +1462,11 @@
             console.log('Role lists received:', result);
 
             return {
-                hivRoles: result.data.hivRoles.nodes.map(role => ({
+                hivRoles: result.data.hIVRoles.nodes.map(role => ({
                     id: role.databaseId,
                     name: role.name
                 })),
-                stiRoles: result.data.stiRoles.nodes.map(role => ({
+                stiRoles: result.data.sTIRoles.nodes.map(role => ({
                     id: role.databaseId,
                     name: role.name
                 }))
@@ -793,6 +1478,9 @@
         }
     }
 
+    /***********************************************************************
+     * ROLE EDITOR FUNCTIONS
+     ***********************************************************************/
     // Consolidate role editor functions into a single function
     function createRoleEditor(roleType) {
         return function(container, options) {
@@ -859,470 +1547,17 @@
     const userHIVRoleEditor = createRoleEditor('HIV');
     const userSTIRoleEditor = createRoleEditor('STI');
 
-    // Function to initialize the OOJ grid
-    async function initializeOOJGrid(jurisdictionId) {
-        try {
-            console.log('Fetching lists for OOJ grid initialization...');
-            const query = 'query GetOOJDetails($jurisdictionId: ID!) {\n' +
-                '    jurisdiction(id: $jurisdictionId, idType: DATABASE_ID) {\n' +
-                '        oojJurisdictionDetails {\n' +
-                '            oojDetails {\n' +
-                '                acceptAndInvestigate\n' +
-                '                acceptAndInvestigateLastDateOfExposure\n' +
-                '                confidentialPhone\n' +
-                '                dispositionsReturned\n' +
-                '                informationReturned\n' +
-                '                notes\n' +
-                '                oojId\n' +
-                '                oojActivity {\n' +
-                '                    nodes {\n' +
-                '                        name\n' +
-                '                    }\n' +
-                '                }\n' +
-                '                pointOfContacts {\n' +
-                '                    nodes {\n' +
-                '                        name\n' +
-                '                    }\n' +
-                '                }\n' +
-                '                oojInfection {\n' +
-                '                    nodes {\n' +
-                '                        name\n' +
-                '                    }\n' +
-                '                }\n' +
-                '            }\n' +
-                '        }\n' +
-                '    }\n' +
-                '}';
-
-            const result = await makeGraphQLRequest(query, { 
-                jurisdictionId: jurisdictionId.toString()
-            });
-            
-            console.log('OOJ details received:', result);
-
-            // Handle null oojDetails
-            const oojDetails = result.data.jurisdiction.oojJurisdictionDetails?.oojDetails || [];
-            
-            // Transform the data for the grid
-            const transformedDetails = oojDetails.map(detail => ({
-                oojId: detail.oojId,
-                acceptAndInvestigate: detail.acceptAndInvestigate,
-                acceptAndInvestigateLastDateOfExposure: detail.acceptAndInvestigateLastDateOfExposure,
-                confidentialPhone: detail.confidentialPhone,
-                dispositionsReturned: detail.dispositionsReturned,
-                informationReturned: detail.informationReturned,
-                notes: detail.notes,
-                oojActivity: detail.oojActivity?.nodes?.map(node => node.name) || [],
-                pointOfContacts: detail.pointOfContacts?.nodes?.map(node => node.name) || [],
-                oojInfection: detail.oojInfection?.nodes?.[0]?.name || ''
-            }));
-
-            // Initialize the grid with the transformed data
-            $("#ooj_juris").kendoGrid({
-                dataSource: {
-                    data: transformedDetails,
-                    schema: {
-                        model: {
-                            id: "oojId",
-                            fields: {
-                                oojId: { type: "number" },
-                                acceptAndInvestigate: { type: "string" },
-                                acceptAndInvestigateLastDateOfExposure: { type: "string" },
-                                confidentialPhone: { type: "string" },
-                                dispositionsReturned: { type: "string" },
-                                informationReturned: { type: "string" },
-                                notes: { type: "string" },
-                                oojActivity: { type: "array", defaultValue: [] },
-                                pointOfContacts: { type: "array", defaultValue: [] },
-                                oojInfection: { type: "string" }
-                            }
-                        }
-                    }
-                },
-                pageable: true,
-                className: "word-wrap-grid",
-                height: 550,
-                toolbar: ["create"], // Add create button
-                editable: "inline",
-                columns: [
-                    {
-                        field: "oojInfection",
-                        title: "OOJ Infection",
-                        editor: createOOJInfectionEditor,
-                        template: function(dataItem) {
-                            return dataItem.oojInfection || "N/A";
-                        }
-                    },
-                    {
-                        field: "oojActivity",
-                        title: "OOJ Activity",
-                        editor: createOOJActivityEditor,
-                        template: function(dataItem) {
-                            return dataItem.oojActivity.join(", ") || "No activities";
-                        }
-                    },
-                    { field: "acceptAndInvestigateLastDateOfExposure", title: "Last Date of Exposure" },
-                    { field: "dispositionsReturned", title: "Dispositions Returned" },
-                    { field: "informationReturned", title: "Information Returned" },
-                    { field: "acceptAndInvestigate", title: "Accept and Investigate" },
-                    { field: "confidentialPhone", title: "Confidential Phone" },
-                    {
-                        field: "pointOfContacts",
-                        title: "Point of Contact(s)",
-                        editor: function(container, options) {
-                            createPointOfContactsEditor(container, options, jurisdictionId);
-                        },
-                        template: function(dataItem) {
-                            return dataItem.pointOfContacts.join(", ") || "No contacts";
-                        }
-                    },
-                    { field: "notes", title: "Notes" },
-                    { command: ["edit", "destroy"], title: "&nbsp;" }
-                ]
-            });
-
-            console.log('OOJ grid initialized');
-        } catch (error) {
-            console.error('Failed to initialize OOJ grid:', error);
-            showNotification('Failed to initialize OOJ grid: ' + error.message);
-            throw error;
-        }
-    }
-
-    // Function to initialize the OOJ data source
-    function initializeOOJDataSource(jurisdictionId) {
-        return new kendo.data.DataSource({
-            transport: {
-                read: async (options) => {
-                    const query = 'query GetOOJDetails($jurisdictionId: Int!) {\n' +
-                        '    jurisdiction(id: $jurisdictionId, idType: DATABASE_ID) {\n' +
-                        '        oojJurisdictionDetails {\n' +
-                        '            oojDetails {\n' +
-                        '                oojId\n' +
-                        '                acceptAndInvestigate\n' +
-                        '                acceptAndInvestigateLastDateOfExposure\n' +
-                        '                confidentialPhone\n' +
-                        '                dispositionsReturned\n' +
-                        '                informationReturned\n' +
-                        '                notes\n' +
-                        '                oojActivity {\n' +
-                        '                    nodes {\n' +
-                        '                        databaseId\n' +
-                        '                        name\n' +
-                        '                    }\n' +
-                        '                }\n' +
-                        '                pointOfContacts {\n' +
-                        '                    nodes {\n' +
-                        '                        databaseId\n' +
-                        '                        name\n' +
-                        '                    }\n' +
-                        '                }\n' +
-                        '                oojInfection {\n' +
-                        '                    nodes {\n' +
-                        '                        databaseId\n' +
-                        '                        name\n' +
-                        '                    }\n' +
-                        '                }\n' +
-                        '            }\n' +
-                        '        }\n' +
-                        '    }\n' +
-                        '}';
-
-                    try {
-                        const result = await makeGraphQLRequest(query, { 
-                            jurisdictionId: parseInt(jurisdictionId)
-                        });
-                        
-                        // Transform the nested data structure
-                        const oojDetails = result.data.jurisdiction.oojJurisdictionDetails.oojDetails.map(detail => ({
-                            oojId: detail.oojId,
-                            acceptAndInvestigate: detail.acceptAndInvestigate,
-                            acceptAndInvestigateLastDateOfExposure: detail.acceptAndInvestigateLastDateOfExposure,
-                            confidentialPhone: detail.confidentialPhone,
-                            dispositionsReturned: detail.dispositionsReturned,
-                            informationReturned: detail.informationReturned,
-                            notes: detail.notes,
-                            oojActivity: detail.oojActivity?.nodes?.map(node => node.databaseId) || [],
-                            pointOfContacts: detail.pointOfContacts?.nodes?.map(node => node.databaseId) || [],
-                            oojInfection: detail.oojInfection?.nodes?.[0]?.databaseId || null
-                        }));
-
-                        console.log('Transformed OOJ details:', oojDetails);
-                        options.success(oojDetails);
-                    } catch (error) {
-                        console.error('Failed to fetch OOJ details:', error);
-                        options.error(error);
-                        showNotification('Failed to fetch OOJ details');
-                    }
-                },
-                update: async (options) => {
-                    const jurisdictionId = btoa(`post:${jurisdictionId}`); // Create Relay ID
-                    const mutation = 'mutation UpdateOOJDetails($input: UpdateOOJDetailsInput!) {\n' +
-                        '    updateOOJDetails(input: $input) {\n' +
-                        '        jurisdiction {\n' +
-                        '            id\n' +
-                        '            databaseId\n' +
-                        '            oojJurisdictionDetails {\n' +
-                        '                oojDetails {\n' +
-                        '                    oojId\n' +
-                        '                    dispositionsReturned\n' +
-                        '                }\n' +
-                        '            }\n' +
-                        '        }\n' +
-                        '    }\n' +
-                        '}';
-
-                    try {
-                        const input = {
-                            id: jurisdictionId,
-                            oojDetails: [{
-                                oojId: options.data.oojId || null,
-                                oojInfection: options.data.oojInfection,
-                                oojActivity: options.data.oojActivity || [],
-                                acceptAndInvestigateLastDateOfExposure: options.data.acceptAndInvestigateLastDateOfExposure,
-                                dispositionsReturned: options.data.dispositionsReturned,
-                                informationReturned: options.data.informationReturned,
-                                acceptAndInvestigate: options.data.acceptAndInvestigate,
-                                methodOfTransmitting: options.data.methodOfTransmitting || [],
-                                confidentialPhone: options.data.confidentialPhone,
-                                notes: options.data.notes,
-                                pointOfContacts: options.data.pointOfContacts
-                            }]
-                        };
-
-                        const result = await makeGraphQLRequest(mutation, { input });
-                        console.log('Update result:', result);
-                        options.success(options.data);
-                    } catch (error) {
-                        console.error('Failed to update OOJ detail:', error);
-                        options.error(error);
-                        showNotification('Failed to update OOJ detail');
-                    }
-                },
-                create: async (options) => {
-                    // Similar to update but without oojId
-                    const jurisdictionId = btoa(`post:${jurisdictionId}`);
-                    const mutation = 'mutation UpdateOOJDetails($input: UpdateOOJDetailsInput!) {\n' +
-                        '    updateOOJDetails(input: $input) {\n' +
-                        '        jurisdiction {\n' +
-                        '            id\n' +
-                        '            databaseId\n' +
-                        '        }\n' +
-                        '    }\n' +
-                        '}';
-
-                    try {
-                        const input = {
-                            id: jurisdictionId,
-                            oojDetails: [{
-                                oojInfection: options.data.oojInfection,
-                                oojActivity: options.data.oojActivity || [],
-                                acceptAndInvestigateLastDateOfExposure: options.data.acceptAndInvestigateLastDateOfExposure,
-                                dispositionsReturned: options.data.dispositionsReturned,
-                                informationReturned: options.data.informationReturned,
-                                acceptAndInvestigate: options.data.acceptAndInvestigate,
-                                methodOfTransmitting: options.data.methodOfTransmitting || [],
-                                confidentialPhone: options.data.confidentialPhone,
-                                notes: options.data.notes,
-                                pointOfContacts: options.data.pointOfContacts
-                            }]
-                        };
-
-                        const result = await makeGraphQLRequest(mutation, { input });
-                        console.log('Create result:', result);
-                        options.success(options.data);
-                    } catch (error) {
-                        console.error('Failed to create OOJ detail:', error);
-                        options.error(error);
-                        showNotification('Failed to create OOJ detail');
-                    }
-                },
-                destroy: async (options) => {
-                    // For destroy, we'll update with an empty array for that specific oojId
-                    const jurisdictionId = btoa(`post:${jurisdictionId}`);
-                    const mutation = 'mutation UpdateOOJDetails($input: UpdateOOJDetailsInput!) {\n' +
-                        '    updateOOJDetails(input: $input) {\n' +
-                        '        jurisdiction {\n' +
-                        '            id\n' +
-                        '            databaseId\n' +
-                        '        }\n' +
-                        '    }\n' +
-                        '}';
-
-                    try {
-                        const input = {
-                            id: jurisdictionId,
-                            oojDetails: [] // Empty array to remove the item
-                        };
-
-                        await makeGraphQLRequest(mutation, { input });
-                        options.success(options.data);
-                    } catch (error) {
-                        console.error('Failed to delete OOJ detail:', error);
-                        options.error(error);
-                        showNotification('Failed to delete OOJ detail');
-                    }
-                }
-            },
-            schema: {
-                model: {
-                    id: "oojId",
-                    fields: {
-                        oojId: { type: "number" },
-                        oojInfection: { type: "number" },
-                        oojActivity: { type: "array", defaultValue: [] },
-                        acceptAndInvestigateLastDateOfExposure: { type: "string" },
-                        dispositionsReturned: { type: "string" },
-                        informationReturned: { type: "string" },
-                        acceptAndInvestigate: { type: "string" },
-                        methodOfTransmitting: { type: "array", defaultValue: [] },
-                        confidentialPhone: { type: "string" },
-                        notes: { type: "string" },
-                        pointOfContacts: { type: "array", defaultValue: [] }  // Changed to array since it's multiple contacts
-                    }
-                }
-            }
-        });
-    }
-
-    // Add these editor functions before the initializeOOJGrid function
-
-    function createOOJEditor(type, list) {
-        return function(container, options) {
-            console.log(`Initializing ${type} editor with options:`, options);
-            
-            // Create a multi-select element
-            $('<input required name="' + options.field + '"/>')
-                .appendTo(container)
-                .kendoMultiSelect({
-                    dataSource: list.map(item => ({
-                        id: item.databaseId,
-                        name: item.name
-                    })),
-                    dataTextField: "name",
-                    dataValueField: "id",
-                    value: options.model[options.field] || [],
-                    change: function(e) {
-                        const selectedIds = this.value();
-                        console.log(`Updated ${type} selection:`, selectedIds);
-                        options.model.set(options.field, selectedIds);
-                    }
-                });
-        };
-    }
-
-    function createContactsEditor(jurisdictionId) {
-        return function(container, options) {
-            console.log('Initializing contacts editor');
-            
-            // Fetch users for the jurisdiction
-            const query = 'query GetJurisdictionUsers($jurisdictionId: Int!) {\n' +
-                '    users(where: { jurisdictionId: $jurisdictionId }) {\n' +
-                '        nodes {\n' +
-                '            databaseId\n' +
-                '            firstName\n' +
-                '            lastName\n' +
-                '        }\n' +
-                '    }\n' +
-                '}';
-
-            makeGraphQLRequest(query, { jurisdictionId: parseInt(jurisdictionId) })
-                .then(result => {
-                    const users = result.data.users.nodes.map(user => ({
-                        id: user.databaseId,
-                        name: `${user.firstName} ${user.lastName}`
-                    }));
-
-                    // Create the multi-select element
-                    $('<input required name="' + options.field + '"/>')
-                        .appendTo(container)
-                        .kendoMultiSelect({
-                            dataSource: users,
-                            dataTextField: "name",
-                            dataValueField: "id",
-                            value: options.model[options.field] || [],
-                            change: function(e) {
-                                const selectedIds = this.value();
-                                console.log('Updated contacts:', selectedIds);
-                                options.model.set(options.field, selectedIds);
-                            }
-                        });
-                })
-                .catch(error => {
-                    console.error('Failed to fetch users for contacts editor:', error);
-                    showNotification('Failed to load contacts');
-                });
-        };
-    }
-
-    // Editor for OOJ Activity selection
-    function createOOJActivityEditor(container, options) {
-        console.log("Initializing OOJ Activity editor with options:", options);
-        console.log("OOJ Activity editor container:", container);
-        console.log("OOJ Activity field value:", options.model[options.field]);
-
-        try {
-            // Fetch OOJ Activities - using iCCRActivities instead of oOJActivities
-            const query = `query GetOOJActivities {
-                iCCRActivities {
-                    nodes {
-                        databaseId
-                        name
-                    }
-                }
-            }`;
-
-            makeGraphQLRequest(query)
-                .then(result => {
-                    console.log("OOJ Activities query result:", result);
-                    
-                    if (!result.data || !result.data.iCCRActivities || !result.data.iCCRActivities.nodes) {
-                        console.error("Invalid OOJ Activities data structure:", result);
-                        showNotification("Failed to load OOJ Activities: Invalid data structure");
-                        return;
-                    }
-                    
-                    const activities = result.data.iCCRActivities.nodes.map(activity => ({
-                        id: activity.databaseId,
-                        name: activity.name
-                    }));
-                    
-                    console.log("Processed activities data:", activities);
-
-                    // Initialize MultiSelect with fetched data
-                    const multiSelect = $("<input name='" + options.field + "'/>")
-                        .appendTo(container)
-                        .kendoMultiSelect({
-                            dataTextField: "name",
-                            dataValueField: "id",
-                            dataSource: activities,
-                            value: options.model[options.field] || [],
-                            valuePrimitive: true,
-                            autoClose: false,
-                            change: function(e) {
-                                const selectedItems = e.sender.value();
-                                options.model.set(options.field, selectedItems);
-                                console.log("Updated activity selections:", selectedItems);
-                            }
-                        });
-                        
-                    console.log("MultiSelect widget created:", multiSelect.data("kendoMultiSelect"));
-                })
-                .catch(error => {
-                    console.error("Failed to fetch OOJ Activities:", error);
-                    showNotification("Failed to load OOJ Activities: " + error.message);
-                });
-        } catch (e) {
-            console.error("Exception in createOOJActivityEditor:", e);
-            showNotification("Error initializing OOJ Activity editor: " + e.message);
-        }
-    }
-
-    // Editor for OOJ Infection selection
-    function createOOJInfectionEditor(container, options) {
-        console.log("Initializing OOJ Infection editor with options:", options);
-
-        // Fetch OOJ Infections
+    /***********************************************************************
+     * OOJ EDITOR FUNCTIONS
+     ***********************************************************************/
+    /**
+     * Editor for OOJ Infection dropdown
+     * @param {Object} container The container element for the editor
+     * @param {Object} options Editor options from the grid
+     */
+    function oojInfectionEditor(container, options) {
+        console.log('Initializing OOJ Infection editor');
+        
         const query = `query GetOOJInfections {
             oOJInfections {
                 nodes {
@@ -1331,95 +1566,694 @@
                 }
             }
         }`;
-
-        makeGraphQLRequest(query)
-            .then(result => {
-                const infections = result.data.oOJInfections.nodes.map(infection => ({
-                    id: infection.databaseId,
-                    name: infection.name
-                }));
-
-                // Initialize DropDownList with fetched data
-                $("<input required/>")
-                    .appendTo(container)
-                    .kendoDropDownList({
-                        dataTextField: "name",
-                        dataValueField: "id",
-                        dataSource: infections,
-                        value: options.model[options.field],
-                        optionLabel: "Select infection...",
-                        valuePrimitive: true,
-                        change: function(e) {
-                            const selectedData = e.sender.dataItem();
-                            options.model.set(options.field, selectedData ? selectedData.id : null);
-                            console.log("Updated infection selection:", selectedData?.id);
-                        }
-                    });
-            })
-            .catch(error => {
-                console.error("Failed to fetch OOJ Infections:", error);
-                showNotification("Failed to load OOJ Infections");
+        
+        const infectionDataSource = new kendo.data.DataSource({
+            transport: {
+                read: async (dataSourceOptions) => {
+                    try {
+                        console.log('Fetching OOJ Infections...');
+                        const result = await makeGraphQLRequest(query);
+                        console.log('OOJ Infections received:', result);
+                        
+                        const infections = result.data.oOJInfections.nodes.map(infection => ({
+                            id: infection.databaseId,
+                            name: infection.name
+                        }));
+                        
+                        dataSourceOptions.success(infections);
+                    } catch (error) {
+                        console.error('Error fetching OOJ Infections:', error);
+                        dataSourceOptions.error(error);
+                        showNotification('Failed to fetch OOJ Infections');
+                    }
+                }
+            }
+        });
+        
+        $('<input name="' + options.field + '"/>')
+            .appendTo(container)
+            .kendoMultiSelect({
+                autoWidth: true,
+                dataTextField: 'name',
+                dataValueField: 'id',
+                dataSource: infectionDataSource,
+                value: options.model[options.field] || [],
+                valuePrimitive: true,
+                autoClose: false
             });
     }
 
-    // Editor for Point of Contacts selection
-    function createPointOfContactsEditor(container, options, jurisdictionId) {  // Added jurisdictionId parameter
-        console.log("Initializing Point of Contacts editor with options:", options);
-
-        // Fetch Users for the jurisdiction - using a different query approach
-        const query = `query GetJurisdictionUsers($jurisdictionId: Int!) {
-            users(where: { jurisdictionDatabaseId: $jurisdictionId }) {
+    /**
+     * Editor for OOJ Activity dropdown
+     * @param {Object} container The container element for the editor
+     * @param {Object} options Editor options from the grid
+     */
+    function oojActivityEditor(container, options) {
+        console.log('Initializing OOJ Activity editor');
+        
+        const query = `query GetOOJActivities {
+            oOJActivities {
                 nodes {
                     databaseId
-                    firstName
-                    lastName
+                    name
                 }
             }
         }`;
-
-        // Use the passed jurisdictionId
-        makeGraphQLRequest(query, { jurisdictionId: parseInt(jurisdictionId) })
-            .then(result => {
-                console.log("Users query result:", result);
-                
-                if (!result.data || !result.data.users || !result.data.users.nodes) {
-                    console.error("Invalid users data structure:", result);
-                    showNotification("Failed to load users: Invalid data structure");
-                    return;
+        
+        const activityDataSource = new kendo.data.DataSource({
+            transport: {
+                read: async (dataSourceOptions) => {
+                    try {
+                        console.log('Fetching OOJ Activities...');
+                        const result = await makeGraphQLRequest(query);
+                        console.log('OOJ Activities received:', result);
+                        
+                        const activities = result.data.oOJActivities.nodes.map(activity => ({
+                            id: activity.databaseId,
+                            name: activity.name
+                        }));
+                        
+                        dataSourceOptions.success(activities);
+                    } catch (error) {
+                        console.error('Error fetching OOJ Activities:', error);
+                        dataSourceOptions.error(error);
+                        showNotification('Failed to fetch OOJ Activities');
+                    }
                 }
-                
-                const users = result.data.users.nodes.map(user => ({
-                    id: user.databaseId,
-                    name: `${user.firstName} ${user.lastName}`
-                }));
-                
-                console.log("Processed users data:", users);
-
-                // Initialize MultiSelect with fetched data
-                const multiSelect = $("<input/>")
-                    .appendTo(container)
-                    .kendoMultiSelect({
-                        dataTextField: "name",
-                        dataValueField: "id",
-                        dataSource: users,
-                        value: options.model[options.field] || [],
-                        valuePrimitive: true,
-                        autoClose: false,
-                        change: function(e) {
-                            const selectedItems = e.sender.value();
-                            options.model.set(options.field, selectedItems);
-                            console.log("Updated point of contacts:", selectedItems);
-                        }
-                    });
-                    
-                console.log("MultiSelect widget created:", multiSelect.data("kendoMultiSelect"));
-            })
-            .catch(error => {
-                console.error("Failed to fetch users:", error);
-                showNotification("Failed to load users: " + error.message);
+            }
+        });
+        
+        $('<input name="' + options.field + '"/>')
+            .appendTo(container)
+            .kendoMultiSelect({
+                autoWidth: true,
+                dataTextField: 'name',
+                dataValueField: 'id',
+                dataSource: activityDataSource,
+                value: options.model[options.field] || [],
+                valuePrimitive: true,
+                autoClose: false
             });
     }
 
+    /**
+     * Editor for Method of Transmitting dropdown
+     * @param {Object} container The container element for the editor
+     * @param {Object} options Editor options from the grid
+     */
+    function methodOfTransmittingEditor(container, options) {
+        console.log('Initializing Method of Transmitting editor');
+        
+        const query = `query GetMethodsOfTransmitting {
+            methodsOfTransmitting {
+                nodes {
+                    databaseId
+                    name
+                }
+            }
+        }`;
+        
+        const methodDataSource = new kendo.data.DataSource({
+            transport: {
+                read: async (dataSourceOptions) => {
+                    try {
+                        console.log('Fetching Methods of Transmitting...');
+                        const result = await makeGraphQLRequest(query);
+                        console.log('Methods of Transmitting received:', result);
+                        
+                        const methods = result.data.methodsOfTransmitting.nodes.map(method => ({
+                            id: method.databaseId,
+                            name: method.name
+                        }));
+                        
+                        dataSourceOptions.success(methods);
+                    } catch (error) {
+                        console.error('Error fetching Methods of Transmitting:', error);
+                        dataSourceOptions.error(error);
+                        showNotification('Failed to fetch Methods of Transmitting');
+                    }
+                }
+            }
+        });
+        
+        $('<input name="' + options.field + '"/>')
+            .appendTo(container)
+            .kendoMultiSelect({
+                autoWidth: true,
+                dataTextField: 'name',
+                dataValueField: 'id',
+                dataSource: methodDataSource,
+                value: options.model[options.field] || [],
+                valuePrimitive: true,
+                autoClose: false
+            });
+    }
+
+    /**
+     * Editor for Acceptable for PII dropdown
+     * @param {Object} container The container element for the editor
+     * @param {Object} options Editor options from the grid
+     */
+    function acceptableForPiiEditor(container, options) {
+        console.log('Initializing Acceptable for PII editor');
+        
+        const query = `query GetAcceptableForPII {
+            acceptableForPiis {
+                nodes {
+                    databaseId
+                    name
+                }
+            }
+        }`;
+        
+        const piiDataSource = new kendo.data.DataSource({
+            transport: {
+                read: async (dataSourceOptions) => {
+                    try {
+                        console.log('Fetching Acceptable for PII options...');
+                        const result = await makeGraphQLRequest(query);
+                        console.log('Acceptable for PII options received:', result);
+                        
+                        const piiOptions = result.data.acceptableForPiis.nodes.map(option => ({
+                            id: option.databaseId,
+                            name: option.name
+                        }));
+                        
+                        dataSourceOptions.success(piiOptions);
+                    } catch (error) {
+                        console.error('Error fetching Acceptable for PII options:', error);
+                        dataSourceOptions.error(error);
+                        showNotification('Failed to fetch Acceptable for PII options');
+                    }
+                }
+            }
+        });
+        
+        $('<input name="' + options.field + '"/>')
+            .appendTo(container)
+            .kendoMultiSelect({
+                autoWidth: true,
+                dataTextField: 'name',
+                dataValueField: 'id',
+                dataSource: piiDataSource,
+                value: options.model[options.field] || [],
+                valuePrimitive: true,
+                autoClose: false
+            });
+    }
+
+    /**
+     * Editor for Point of Contacts dropdown
+     * @param {Object} container The container element for the editor
+     * @param {Object} options Editor options from the grid
+     * @param {string} jurisdictionId The jurisdiction ID for the contacts
+     */
+    function pointOfContactsEditor(container, options) {
+        console.log('Initializing Point of Contacts editor');
+        
+        // Get the jurisdictionId from the grid's container
+        const jurisdictionId = $('#ooj_grid').data('jurisdictionId');
+        
+        if (!jurisdictionId) {
+            console.error('No jurisdiction ID available for contacts editor');
+            return;
+        }
+        
+        const contactsDataSource = new kendo.data.DataSource({
+            transport: {
+                read: async (dataSourceOptions) => {
+                    try {
+                        console.log('Fetching contacts for jurisdiction:', jurisdictionId);
+                        const result = await makeGraphQLRequest(
+                            GraphQLQueries.getJurisdictionUsers, 
+                            { jurisdictionId: parseInt(jurisdictionId) }
+                        );
+                        console.log('Contacts received:', result);
+                        
+                        const contacts = result.data.users.nodes.map(user => ({
+                            id: user.databaseId,
+                            name: `${user.firstName} ${user.lastName}`
+                        }));
+                        
+                        dataSourceOptions.success(contacts);
+                    } catch (error) {
+                        console.error('Error fetching contacts:', error);
+                        dataSourceOptions.error(error);
+                        showNotification('Failed to fetch contacts');
+                    }
+                }
+            }
+        });
+        
+        $('<input name="' + options.field + '"/>')
+            .appendTo(container)
+            .kendoMultiSelect({
+                autoWidth: true,
+                dataTextField: 'name',
+                dataValueField: 'id',
+                dataSource: contactsDataSource,
+                value: options.model[options.field] || [],
+                valuePrimitive: true,
+                autoClose: false
+            });
+    }
+
+    /***********************************************************************
+     * EDITOR HELPER FUNCTIONS
+     ***********************************************************************/
+    
+    /**
+     * Creates a dropdown editor for Kendo Grid
+     * @param {Object} config Configuration object containing type and dataSource
+     * @returns {Function} Editor function for the grid
+     */
+    function createDropDownEditor(config) {
+        return function(container, options) {
+            $('<input name="' + options.field + '"/>')
+                .appendTo(container)
+                .kendoDropDownList({
+                    dataTextField: 'name',
+                    dataValueField: 'id',
+                    dataSource: config.dataSource,
+                    value: options.model[options.field],
+                    autoWidth: true
+                });
+        };
+    }
+
+    /**
+     * Creates a multi-select editor for Kendo Grid
+     * @param {Object} config Configuration object containing type and dataSource
+     * @returns {Function} Editor function for the grid
+     */
+    function createMultiSelectEditor(config) {
+        return function(container, options) {
+            $('<input name="' + options.field + '"/>')
+                .appendTo(container)
+                .kendoMultiSelect({
+                    dataTextField: 'name',
+                    dataValueField: 'id',
+                    dataSource: config.dataSource,
+                    value: options.model[options.field] || [],
+                    autoWidth: true,
+                    valuePrimitive: true,
+                    autoClose: false
+                });
+        };
+    }
+
+    /***********************************************************************
+     * OOJ GRID INITIALIZATION
+     ***********************************************************************/
+    /**
+     * Helper function to build contact names from contact IDs using the contacts data
+     * @param {Array} contactIds Array of contact IDs
+     * @param {Object} contactsData Data from the contacts query containing user information
+     * @returns {Array} Array of contact names in format "FirstName LastName"
+     */
+    function buildContactNames(contactIds, contactsData) {
+        if (!contactIds || !contactIds.length || !contactsData || !contactsData.data || !contactsData.data.users) {
+            return [];
+        }
+        
+        // Convert contactIds to numbers for consistent comparison
+        const numericContactIds = contactIds.map(id => parseInt(id));
+        
+        // Build a map of contacts for faster lookup
+        const contactMap = {};
+        contactsData.data.users.nodes.forEach(user => {
+            contactMap[user.databaseId] = `${user.firstName} ${user.lastName}`;
+        });
+        
+        // Map each ID to a name if found
+        return numericContactIds.map(id => {
+            return contactMap[id] || `Contact ${id}`;
+        });
+    }
+
+    /**
+     * Initialize the OOJ Grid
+     * @param {string} jurisdictionId - The ID of the jurisdiction to load data for
+     * @returns {Promise<Object>} - The initialized Kendo Grid instance
+     */
+    async function initializeOOJGrid(jurisdictionId) {
+        console.log('Initializing OOJ grid with jurisdiction ID:', jurisdictionId);
+        
+        try {
+            // Store jurisdiction ID for editors to access
+            $('#ooj_grid').data('jurisdictionId', jurisdictionId);
+            
+            // Create the data source
+            const dataSource = initializeOOJDataSource(jurisdictionId);
+            
+            // Initialize the grid
+            $("#ooj_grid").kendoGrid({
+                dataSource: dataSource,
+                pageable: true,
+                height: 550,
+                toolbar: ["create", "save", "cancel", "excel"],
+                columns: [
+                    { 
+                        field: "oojInfection", 
+                        title: "Infection", 
+                        width: "120px",
+                        template: dataItem => dataItem.oojInfectionName || '',
+                        editor: createDropDownEditor({
+                            type: 'OOJInfections',
+                            dataSource: new kendo.data.DataSource({
+                                transport: {
+                                    read: async (options) => {
+                                        try {
+                                            const result = await makeGraphQLRequest(GraphQLQueries.getOOJInfections);
+                                            options.success(result.data.oOJInfections.nodes.map(node => ({
+                                                id: node.databaseId,
+                                                name: node.name
+                                            })));
+                                        } catch (error) {
+                                            console.error('Error fetching OOJ Infections:', error);
+                                            options.error(error);
+                                        }
+                                    }
+                                }
+                            })
+                        })
+                    },
+                    { 
+                        field: "oojActivity", 
+                        title: "Activity", 
+                        width: "150px",
+                        template: dataItem => dataItem.oojActivityNames?.join(', ') || '',
+                        editor: createMultiSelectEditor({
+                            type: 'OOJActivities',
+                            dataSource: new kendo.data.DataSource({
+                                transport: {
+                                    read: async (options) => {
+                                        try {
+                                            const result = await makeGraphQLRequest(GraphQLQueries.getOOJActivities);
+                                            options.success(result.data.oOJActivities.nodes.map(node => ({
+                                                id: node.databaseId,
+                                                name: node.name
+                                            })));
+                                        } catch (error) {
+                                            console.error('Error fetching OOJ Activities:', error);
+                                            options.error(error);
+                                        }
+                                    }
+                                }
+                            })
+                        })
+                    },
+                    { 
+                        field: "lastDateOfExposure", 
+                        title: "Last Date of Exposure", 
+                        width: "150px",
+                        editor: function(container, options) {
+                            $('<input name="lastDateOfExposure"/>')
+                                .appendTo(container)
+                                .kendoTextBox({
+                                    value: options.model.lastDateOfExposure
+                                });
+                        }
+                    },
+                    { 
+                        field: "dispositionsReturned", 
+                        title: "Dispositions", 
+                        width: "120px",
+                        editor: function(container, options) {
+                            $('<input name="dispositionsReturned"/>')
+                                .appendTo(container)
+                                .kendoTextBox({
+                                    value: options.model.dispositionsReturned
+                                });
+                        }
+                    },
+                    { 
+                        field: "methodOfTransmitting", 
+                        title: "Method of Transmitting", 
+                        width: "150px",
+                        template: dataItem => dataItem.methodOfTransmittingNames?.join(', ') || '',
+                        editor: createMultiSelectEditor({
+                            type: 'MethodsOfTransmitting',
+                            dataSource: new kendo.data.DataSource({
+                                transport: {
+                                    read: async (options) => {
+                                        try {
+                                            const result = await makeGraphQLRequest(GraphQLQueries.getMethodsOfTransmitting);
+                                            options.success(result.data.methodsOfTransmitting.nodes.map(node => ({
+                                                id: node.databaseId,
+                                                name: node.name
+                                            })));
+                                        } catch (error) {
+                                            console.error('Error fetching Methods of Transmitting:', error);
+                                            options.error(error);
+                                        }
+                                    }
+                                }
+                            })
+                        })
+                    },
+                    { 
+                        field: "acceptableForPii", 
+                        title: "Acceptable for PII", 
+                        width: "150px",
+                        template: dataItem => dataItem.acceptableForPiiNames?.join(', ') || '',
+                        editor: createMultiSelectEditor({
+                            type: 'AcceptableForPii',
+                            dataSource: new kendo.data.DataSource({
+                                transport: {
+                                    read: async (options) => {
+                                        try {
+                                            const result = await makeGraphQLRequest(GraphQLQueries.getAcceptableForPii);
+                                            options.success(result.data.acceptableForPiis.nodes.map(node => ({
+                                                id: node.databaseId,
+                                                name: node.name
+                                            })));
+                                        } catch (error) {
+                                            console.error('Error fetching Acceptable for PII:', error);
+                                            options.error(error);
+                                        }
+                                    }
+                                }
+                            })
+                        })
+                    },
+                    { 
+                        field: "notes", 
+                        title: "Notes", 
+                        width: "200px",
+                        editor: function(container, options) {
+                            $('<textarea class="k-textbox" name="notes" style="width: 100%; min-height: 60px;"/>')
+                                .appendTo(container)
+                                .attr("data-bind", "value:notes");
+                        }
+                    },
+                    { 
+                        field: "pointOfContacts", 
+                        title: "Point of Contacts", 
+                        width: "200px",
+                        template: dataItem => dataItem.pointOfContactNames?.join(', ') || '',
+                        editor: createMultiSelectEditor({
+                            type: 'Contacts',
+                            dataSource: new kendo.data.DataSource({
+                                transport: {
+                                    read: async (options) => {
+                                        try {
+                                            const result = await makeGraphQLRequest(
+                                                GraphQLQueries.getJurisdictionUsers,
+                                                { jurisdictionId: parseInt(jurisdictionId) }
+                                            );
+                                            options.success(result.data.users.nodes.map(user => ({
+                                                id: user.databaseId,
+                                                name: `${user.firstName} ${user.lastName}`
+                                            })));
+                                        } catch (error) {
+                                            console.error('Error fetching contacts:', error);
+                                            options.error(error);
+                                        }
+                                    }
+                                }
+                            })
+                        })
+                    },
+                    { command: ["edit", "destroy"], title: "&nbsp;", width: "250px" }
+                ],
+                editable: "inline",
+                save: function(e) {
+                    console.log('OOJ Grid save event triggered:', e);
+                    
+                    if (e.model) {
+                        // Update the name arrays based on the ID arrays
+                        updateNameArrays(e.model);
+                        
+                        // Force a delayed refresh to ensure server changes are displayed
+                        setTimeout(() => {
+                            console.log('Performing delayed grid refresh after save');
+                            this.dataSource.read();
+                        }, 2000);
+                    }
+                },
+                dataBound: function() {
+                    console.log('OOJ grid data bound');
+                    
+                    if (this.dataSource.data().length === 0) {
+                        const noDataCell = $('#ooj_grid').find('tr.k-no-data td');
+                        if (noDataCell.length) {
+                            noDataCell.html(
+                                '<div class="alert alert-info text-center p-4">'+
+                                '<strong>No OOJ entries yet</strong><br>'+
+                                'Click the "Add New" button above to create your first entry.</div>'
+                            );
+                        }
+                    }
+                }
+            });
+            
+            console.log('OOJ grid initialized successfully');
+            return $("#ooj_grid").data("kendoGrid");
+        } catch (error) {
+            console.error('Failed to initialize OOJ grid:', error);
+            showNotification('Failed to initialize OOJ grid: ' + error.message);
+            throw error;
+        }
+    }
+
+    /**
+     * Initialize the OOJ data source using GraphQL
+     * @param {string} jurisdictionId - The ID of the jurisdiction to load data for
+     * @returns {kendo.data.DataSource} - The initialized data source
+     */
+    function initializeOOJDataSource(jurisdictionId) {
+        return new kendo.data.DataSource({
+            transport: createGraphQLTransport({
+                readQuery: GraphQLQueries.getOOJData,
+                readVariables: { jurisdictionId: jurisdictionId.toString() },
+                readTransform: (result) => {
+                    const jurisdiction = result.data?.jurisdiction;
+                    if (!jurisdiction) {
+                        console.warn('No jurisdiction found in response');
+                        return [];
+                    }
+                    
+                    const oojDetails = jurisdiction.oojJurisdictionDetails?.oojDetails || [];
+                    
+                    return oojDetails.map(detail => {
+                        const infectionNode = detail.oojInfection?.nodes[0] || {};
+                        const activityNodes = detail.oojActivity?.nodes || [];
+                        const methodNodes = detail.methodOfTransmitting?.nodes || [];
+                        const piiNodes = detail.acceptable_for_pii?.nodes || [];
+                        const contactNodes = detail.point_of_contacts?.nodes || [];
+                        
+                        return {
+                            id: detail.oojId,
+                            jurisdictionId: jurisdiction.databaseId,
+                            title: jurisdiction.title,
+                            oojId: detail.oojId,
+                            oojInfection: infectionNode.databaseId,
+                            oojInfectionName: infectionNode.name,
+                            oojActivity: activityNodes.map(n => n.databaseId),
+                            oojActivityNames: activityNodes.map(n => n.name),
+                            lastDateOfExposure: detail.lastDateOfExposure,
+                            dispositionsReturned: detail.dispositionsReturned,
+                            methodOfTransmitting: methodNodes.map(n => n.databaseId),
+                            methodOfTransmittingNames: methodNodes.map(n => n.name),
+                            acceptableForPii: piiNodes.map(n => n.databaseId),
+                            acceptableForPiiNames: piiNodes.map(n => n.name),
+                            notes: detail.notes,
+                            pointOfContacts: contactNodes.map(n => n.databaseId),
+                            pointOfContactNames: contactNodes.map(n => `${n.firstName} ${n.lastName}`)
+                        };
+                    });
+                },
+                
+                createMutation: GraphQLMutations.createOOJData,
+                createVariablesBuilder: (data) => {
+                    const oojId = data.oojId || Math.floor(Math.random() * 1000000).toString();
+                    
+                    return {
+                        input: {
+                            id: jurisdictionId.toString(),
+                            clientMutationId: `grid-create-ooj-${Date.now()}`,
+                            oojDetails: [{
+                                oojId: parseInt(oojId),
+                                oojInfection: parseInt(data.oojInfection) || 0,
+                                oojActivity: Array.isArray(data.oojActivity) ? data.oojActivity.map(id => parseInt(id)) : [],
+                                lastDateOfExposure: data.lastDateOfExposure || "",
+                                dispositionsReturned: data.dispositionsReturned || "",
+                                methodOfTransmitting: Array.isArray(data.methodOfTransmitting) ? data.methodOfTransmitting.map(id => parseInt(id)) : [],
+                                acceptableForPii: Array.isArray(data.acceptableForPii) ? data.acceptableForPii.map(id => parseInt(id)) : [],
+                                notes: data.notes || "",
+                                pointOfContacts: Array.isArray(data.pointOfContacts) ? data.pointOfContacts.map(id => parseInt(id)) : []
+                            }]
+                        }
+                    };
+                },
+                
+                updateMutation: GraphQLMutations.updateOOJData,
+                updateVariablesBuilder: (data) => {
+                    const oojId = parseInt(data.oojId);
+                    if (!oojId) {
+                        console.error('OOJ ID missing for update');
+                        return null;
+                    }
+                    
+                    const oojInfection = parseInt(data.oojInfection) || 0;
+                    if (!oojInfection) {
+                        console.error('Infection field missing for update');
+                        return null;
+                    }
+                    
+                    return {
+                        input: {
+                            id: parseInt(jurisdictionId),
+                            clientMutationId: `grid-update-ooj-${Date.now()}`,
+                            oojDetails: [{
+                                oojId: oojId,
+                                oojInfection: oojInfection,
+                                oojActivity: Array.isArray(data.oojActivity) ? data.oojActivity.map(id => parseInt(id)) : [],
+                                lastDateOfExposure: data.lastDateOfExposure || "",
+                                dispositionsReturned: data.dispositionsReturned || "",
+                                methodOfTransmitting: Array.isArray(data.methodOfTransmitting) ? data.methodOfTransmitting.map(id => parseInt(id)) : [],
+                                acceptableForPii: Array.isArray(data.acceptableForPii) ? data.acceptableForPii.map(id => parseInt(id)) : [],
+                                notes: data.notes || "",
+                                pointOfContacts: Array.isArray(data.pointOfContacts) ? data.pointOfContacts.map(id => parseInt(id)) : []
+                            }]
+                        }
+                    };
+                },
+                
+                deleteMutation: GraphQLMutations.deleteOOJData,
+                deleteVariablesBuilder: (data) => ({
+                    input: {
+                        jurisdictionId: jurisdictionId.toString(),
+                        oojId: data.oojId,
+                        clientMutationId: `grid-delete-ooj-${Date.now()}`
+                    }
+                })
+            }),
+            
+            schema: {
+                model: {
+                    id: "oojId",
+                    fields: {
+                        oojId: { type: "string", editable: false, defaultValue: null },
+                        oojInfection: { type: "string", validation: { required: true } },
+                        oojActivity: { type: "object", defaultValue: [] },
+                        lastDateOfExposure: { type: "string" },
+                        dispositionsReturned: { type: "string" },
+                        methodOfTransmitting: { type: "object", defaultValue: [] },
+                        acceptableForPii: { type: "object", defaultValue: [] },
+                        notes: { type: "string", defaultValue: "" },
+                        pointOfContacts: { type: "object", defaultValue: [] }
+                    }
+                }
+            },
+            pageSize: 10
+        });
+    }
+
+    /***********************************************************************
+     * PASSWORD GENERATION FOR WORDPRESS USER CREATION
+     ***********************************************************************/
     // Password generator for WordPress user creation
     function generateTemporaryPassword(length = 12) {
         const uppercaseChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
