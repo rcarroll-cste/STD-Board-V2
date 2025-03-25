@@ -146,20 +146,21 @@
                             }
                             lastDateOfExposure
                             dispositionsReturned
+                            acceptAndInvestigate
                             methodOfTransmitting {
                                 nodes {
                                     databaseId
                                     name
                                 }
                             }
-                            acceptable_for_pii {
+                            acceptableForPii {
                                 nodes {
                                     databaseId
                                     name
                                 }
                             }
                             notes
-                            point_of_contacts {
+                            pointOfContacts {
                                 nodes {
                                     databaseId
                                     firstName
@@ -186,7 +187,51 @@
                     }
                 }
             }
-        `
+        `,
+        
+        getOOJInfections: `
+            query GetOOJInfections {
+                oOJInfections {
+                    nodes {
+                        databaseId
+                        name
+                    }
+                }
+            }
+        `,
+        
+        getOOJActivities: `
+            query GetOOJActivities {
+                oOJActivities {
+                    nodes {
+                        databaseId
+                        name
+                    }
+                }
+            }
+        `,
+        
+        getMethodsOfTransmitting: `
+            query GetMethodsOfTransmitting {
+                methodsOfTransmitting {
+                    nodes {
+                        databaseId
+                        name
+                    }
+                }
+            }
+        `,
+        
+        getAcceptableForPii: `
+            query GetAcceptableForPII {
+                acceptableForPiis {
+                    nodes {
+                        databaseId
+                        name
+                    }
+                }
+            }
+        `,
     };
 
     const GraphQLMutations = {
@@ -782,6 +827,12 @@
             // Update the header with the jurisdiction name
             $('#jurisdictionName').text(jurisdictionName);
             
+            // Initialize reference data before initializing grids
+            await withErrorHandling(
+                () => initializeReferenceData(jurisdictionId),
+                'Failed to initialize some reference data'
+            );
+            
             // Initialize all grids
             console.log('Initializing all grids for jurisdiction ID:', jurisdictionId);
             
@@ -807,7 +858,7 @@
                 )
             ]);
                 
-                console.log('All grids initialized successfully');
+            console.log('All grids initialized successfully');
             
             // Show a success notification
             showNotification('Application initialized successfully', 'success');
@@ -1904,7 +1955,149 @@
             $('#ooj_grid').data('jurisdictionId', jurisdictionId);
             
             // Create the data source
-            const dataSource = initializeOOJDataSource(jurisdictionId);
+            const dataSource = new kendo.data.DataSource({
+                transport: {
+                    read: async (options) => {
+                        try {
+                            console.log('Reading OOJ data for jurisdiction:', jurisdictionId);
+                            const result = await makeGraphQLRequest(GraphQLQueries.getOOJData, { 
+                                jurisdictionId: jurisdictionId.toString() 
+                            });
+                            
+                            const transformedData = result.data.jurisdiction.oojJurisdictionDetails.oojDetails.map(detail => ({
+                                id: detail.oojId,
+                                oojInfection: detail.oojInfection?.nodes?.[0]?.databaseId || null,
+                                oojActivity: detail.oojActivity?.nodes?.map(n => n.databaseId) || [],
+                                lastDateOfExposure: detail.lastDateOfExposure || '',
+                                dispositionsReturned: detail.dispositionsReturned || '',
+                                acceptAndInvestigate: detail.acceptAndInvestigate || '',
+                                methodOfTransmitting: detail.methodOfTransmitting?.nodes?.map(n => n.databaseId) || [],
+                                acceptableForPii: detail.acceptableForPii?.nodes?.map(n => n.databaseId) || [],
+                                notes: detail.notes || '',
+                                pointOfContacts: detail.pointOfContacts?.nodes?.map(n => n.databaseId) || []
+                            }));
+                            
+                            options.success(transformedData);
+                        } catch (error) {
+                            console.error('Read operation failed:', error);
+                            options.error(error);
+                            showNotification('Failed to load OOJ data');
+                        }
+                    },
+                    create: async (options) => {
+                        try {
+                            console.log('Creating new OOJ entry:', options.data);
+                            
+                            const mutation = GraphQLMutations.createOOJData;
+                            const variables = {
+                                input: {
+                                    id: jurisdictionId.toString(),
+                                    clientMutationId: `create-ooj-${Date.now()}`,
+                                    oojDetails: [{
+                                        oojId: Math.floor(Math.random() * 1000000),
+                                        oojInfection: parseInt(options.data.oojInfection),
+                                        oojActivity: options.data.oojActivity.map(id => parseInt(id)),
+                                        lastDateOfExposure: options.data.lastDateOfExposure,
+                                        dispositionsReturned: options.data.dispositionsReturned,
+                                        acceptAndInvestigate: options.data.acceptAndInvestigate || '',
+                                        methodOfTransmitting: options.data.methodOfTransmitting.map(id => parseInt(id)),
+                                        acceptableForPii: options.data.acceptableForPii.map(id => parseInt(id)),
+                                        notes: options.data.notes,
+                                        pointOfContacts: options.data.pointOfContacts.map(id => parseInt(id))
+                                    }]
+                                }
+                            };
+                            
+                            const result = await makeGraphQLRequest(mutation, variables);
+                            console.log('Create operation result:', result);
+                            
+                            options.success(options.data);
+                            showNotification('OOJ entry created successfully', 'success');
+                        } catch (error) {
+                            console.error('Create operation failed:', error);
+                            options.error(error);
+                            showNotification('Failed to create OOJ entry');
+                        }
+                    },
+                    update: async (options) => {
+                        try {
+                            console.log('Updating OOJ entry:', options.data);
+                            
+                            const mutation = GraphQLMutations.updateOOJData;
+                            const variables = {
+                                input: {
+                                    id: jurisdictionId.toString(),
+                                    clientMutationId: `update-ooj-${Date.now()}`,
+                                    oojDetails: [{
+                                        oojId: parseInt(options.data.id),
+                                        oojInfection: parseInt(options.data.oojInfection),
+                                        oojActivity: options.data.oojActivity.map(id => parseInt(id)),
+                                        lastDateOfExposure: options.data.lastDateOfExposure,
+                                        dispositionsReturned: options.data.dispositionsReturned,
+                                        acceptAndInvestigate: options.data.acceptAndInvestigate || '',
+                                        methodOfTransmitting: options.data.methodOfTransmitting.map(id => parseInt(id)),
+                                        acceptableForPii: options.data.acceptableForPii.map(id => parseInt(id)),
+                                        notes: options.data.notes,
+                                        pointOfContacts: options.data.pointOfContacts.map(id => parseInt(id))
+                                    }]
+                                }
+                            };
+                            
+                            const result = await makeGraphQLRequest(mutation, variables);
+                            console.log('Update operation result:', result);
+                            
+                            options.success(options.data);
+                            showNotification('OOJ entry updated successfully', 'success');
+                        } catch (error) {
+                            console.error('Update operation failed:', error);
+                            options.error(error);
+                            showNotification('Failed to update OOJ entry');
+                        }
+                    },
+                    destroy: async (options) => {
+                        try {
+                            console.log('Deleting OOJ entry:', options.data);
+                            
+                            const mutation = GraphQLMutations.deleteOOJData;
+                            const variables = {
+                                input: {
+                                    jurisdictionId: jurisdictionId.toString(),
+                                    oojId: options.data.id,
+                                    clientMutationId: `delete-ooj-${Date.now()}`
+                                }
+                            };
+                            
+                            const result = await makeGraphQLRequest(mutation, variables);
+                            console.log('Delete operation result:', result);
+                            
+                            options.success(options.data);
+                            showNotification('OOJ entry deleted successfully', 'success');
+                        } catch (error) {
+                            console.error('Delete operation failed:', error);
+                            options.error(error);
+                            showNotification('Failed to delete OOJ entry');
+                        }
+                    }
+                },
+                schema: {
+                    model: {
+                        id: "id",
+                        fields: {
+                            id: { type: "number", editable: false },
+                            oojId: { type: "number", editable: false },
+                            oojInfection: { type: "number", validation: { required: true } },
+                            oojActivity: { type: "object", defaultValue: [] },
+                            lastDateOfExposure: { type: "string" },
+                            dispositionsReturned: { type: "string" },
+                            acceptAndInvestigate: { type: "string" },
+                            methodOfTransmitting: { type: "object", defaultValue: [] },
+                            acceptableForPii: { type: "object", defaultValue: [] },
+                            notes: { type: "string", defaultValue: "" },
+                            pointOfContacts: { type: "object", defaultValue: [] }
+                        }
+                    }
+                }
+            });
             
             // Initialize the grid
             $("#ooj_grid").kendoGrid({
@@ -1917,18 +2110,33 @@
                         field: "oojInfection", 
                         title: "Infection", 
                         width: "120px",
-                        template: dataItem => dataItem.oojInfectionName || '',
+                        template: dataItem => {
+                            // Make the template more robust against missing reference data
+                            if (!oojInfectionList || !oojInfectionList.length) return dataItem.oojInfection || 'N/A';
+                            const infection = oojInfectionList.find(inf => inf.id === dataItem.oojInfection);
+                            return infection ? infection.name : 'N/A';
+                        },
                         editor: createDropDownEditor({
                             type: 'OOJInfections',
                             dataSource: new kendo.data.DataSource({
+                                data: oojInfectionList, // Use the pre-loaded list
                                 transport: {
                                     read: async (options) => {
+                                        if (oojInfectionList && oojInfectionList.length) {
+                                            options.success(oojInfectionList);
+                                            return;
+                                        }
+                                        
                                         try {
                                             const result = await makeGraphQLRequest(GraphQLQueries.getOOJInfections);
-                                            options.success(result.data.oOJInfections.nodes.map(node => ({
+                                            const infections = result.data.oOJInfections.nodes.map(node => ({
                                                 id: node.databaseId,
                                                 name: node.name
-                                            })));
+                                            }));
+                                            
+                                            // Update the global list for future use
+                                            oojInfectionList = infections;
+                                            options.success(infections);
                                         } catch (error) {
                                             console.error('Error fetching OOJ Infections:', error);
                                             options.error(error);
@@ -1942,18 +2150,40 @@
                         field: "oojActivity", 
                         title: "Activity", 
                         width: "150px",
-                        template: dataItem => dataItem.oojActivityNames?.join(', ') || '',
+                        template: dataItem => {
+                            if (!dataItem.oojActivity?.length) return 'No activities';
+                            // Make the template more robust against missing reference data
+                            if (!oojActivityList || !oojActivityList.length) {
+                                return dataItem.oojActivity.join(', ') || 'N/A';
+                            }
+                            return dataItem.oojActivity
+                                .map(id => {
+                                    const activity = oojActivityList.find(act => act.id === id);
+                                    return activity ? activity.name : 'ID: ' + id;
+                                })
+                                .join(', ');
+                        },
                         editor: createMultiSelectEditor({
                             type: 'OOJActivities',
                             dataSource: new kendo.data.DataSource({
+                                data: oojActivityList, // Use the pre-loaded list
                                 transport: {
                                     read: async (options) => {
+                                        if (oojActivityList && oojActivityList.length) {
+                                            options.success(oojActivityList);
+                                            return;
+                                        }
+
                                         try {
                                             const result = await makeGraphQLRequest(GraphQLQueries.getOOJActivities);
-                                            options.success(result.data.oOJActivities.nodes.map(node => ({
+                                            const activities = result.data.oOJActivities.nodes.map(node => ({
                                                 id: node.databaseId,
                                                 name: node.name
-                                            })));
+                                            }));
+                                            
+                                            // Update the global list for future use
+                                            oojActivityList = activities;
+                                            options.success(activities);
                                         } catch (error) {
                                             console.error('Error fetching OOJ Activities:', error);
                                             options.error(error);
@@ -1988,21 +2218,55 @@
                         }
                     },
                     { 
+                        field: "acceptAndInvestigate", 
+                        title: "Accept and Investigate", 
+                        width: "150px",
+                        editor: function(container, options) {
+                            $('<input name="acceptAndInvestigate"/>')
+                                .appendTo(container)
+                                .kendoTextBox({
+                                    value: options.model.acceptAndInvestigate
+                                });
+                        }
+                    },
+                    { 
                         field: "methodOfTransmitting", 
                         title: "Method of Transmitting", 
                         width: "150px",
-                        template: dataItem => dataItem.methodOfTransmittingNames?.join(', ') || '',
+                        template: dataItem => {
+                            if (!dataItem.methodOfTransmitting?.length) return 'N/A';
+                            // Make the template more robust against missing reference data
+                            if (!methodsOfTransmissionList || !methodsOfTransmissionList.length) {
+                                return dataItem.methodOfTransmitting.join(', ') || 'N/A';
+                            }
+                            return dataItem.methodOfTransmitting
+                                .map(id => {
+                                    const method = methodsOfTransmissionList.find(m => m.id === id);
+                                    return method ? method.name : 'ID: ' + id;
+                                })
+                                .join(', ');
+                        },
                         editor: createMultiSelectEditor({
                             type: 'MethodsOfTransmitting',
                             dataSource: new kendo.data.DataSource({
+                                data: methodsOfTransmissionList, // Use the pre-loaded list
                                 transport: {
                                     read: async (options) => {
+                                        if (methodsOfTransmissionList && methodsOfTransmissionList.length) {
+                                            options.success(methodsOfTransmissionList);
+                                            return;
+                                        }
+                                        
                                         try {
                                             const result = await makeGraphQLRequest(GraphQLQueries.getMethodsOfTransmitting);
-                                            options.success(result.data.methodsOfTransmitting.nodes.map(node => ({
+                                            const methods = result.data.methodsOfTransmitting.nodes.map(node => ({
                                                 id: node.databaseId,
                                                 name: node.name
-                                            })));
+                                            }));
+                                            
+                                            // Update the global list for future use
+                                            methodsOfTransmissionList = methods;
+                                            options.success(methods);
                                         } catch (error) {
                                             console.error('Error fetching Methods of Transmitting:', error);
                                             options.error(error);
@@ -2016,18 +2280,40 @@
                         field: "acceptableForPii", 
                         title: "Acceptable for PII", 
                         width: "150px",
-                        template: dataItem => dataItem.acceptableForPiiNames?.join(', ') || '',
+                        template: dataItem => {
+                            if (!dataItem.acceptableForPii?.length) return 'N/A';
+                            // Make the template more robust against missing reference data
+                            if (!acceptableForPiiList || !acceptableForPiiList.length) {
+                                return dataItem.acceptableForPii.join(', ') || 'N/A';
+                            }
+                            return dataItem.acceptableForPii
+                                .map(id => {
+                                    const pii = acceptableForPiiList.find(p => p.id === id);
+                                    return pii ? pii.name : 'ID: ' + id;
+                                })
+                                .join(', ');
+                        },
                         editor: createMultiSelectEditor({
                             type: 'AcceptableForPii',
                             dataSource: new kendo.data.DataSource({
+                                data: acceptableForPiiList, // Use the pre-loaded list
                                 transport: {
                                     read: async (options) => {
+                                        if (acceptableForPiiList && acceptableForPiiList.length) {
+                                            options.success(acceptableForPiiList);
+                                            return;
+                                        }
+                                        
                                         try {
                                             const result = await makeGraphQLRequest(GraphQLQueries.getAcceptableForPii);
-                                            options.success(result.data.acceptableForPiis.nodes.map(node => ({
+                                            const piiOptions = result.data.acceptableForPiis.nodes.map(node => ({
                                                 id: node.databaseId,
                                                 name: node.name
-                                            })));
+                                            }));
+                                            
+                                            // Update the global list for future use
+                                            acceptableForPiiList = piiOptions;
+                                            options.success(piiOptions);
                                         } catch (error) {
                                             console.error('Error fetching Acceptable for PII:', error);
                                             options.error(error);
@@ -2051,21 +2337,51 @@
                         field: "pointOfContacts", 
                         title: "Point of Contacts", 
                         width: "200px",
-                        template: dataItem => dataItem.pointOfContactNames?.join(', ') || '',
+                        template: dataItem => {
+                            if (!dataItem.pointOfContacts?.length) return 'No contacts';
+                            // Make the template more robust against missing reference data
+                            if (!jurisdictionUsersList || !jurisdictionUsersList.length) {
+                                return dataItem.pointOfContacts.join(', ') || 'N/A';
+                            }
+                            return dataItem.pointOfContacts
+                                .map(id => {
+                                    const contact = jurisdictionUsersList.find(u => u.id === id);
+                                    return contact ? `${contact.firstName} ${contact.lastName}` : 'ID: ' + id;
+                                })
+                                .join(', ');
+                        },
                         editor: createMultiSelectEditor({
                             type: 'Contacts',
                             dataSource: new kendo.data.DataSource({
+                                data: jurisdictionUsersList, // Use the pre-loaded list
                                 transport: {
                                     read: async (options) => {
+                                        if (jurisdictionUsersList && jurisdictionUsersList.length) {
+                                            options.success(jurisdictionUsersList.map(user => ({
+                                                id: user.id,
+                                                name: `${user.firstName} ${user.lastName}`
+                                            })));
+                                            return;
+                                        }
+                                        
                                         try {
                                             const result = await makeGraphQLRequest(
                                                 GraphQLQueries.getJurisdictionUsers,
                                                 { jurisdictionId: parseInt(jurisdictionId) }
                                             );
-                                            options.success(result.data.users.nodes.map(user => ({
+                                            const contacts = result.data.users.nodes.map(user => ({
                                                 id: user.databaseId,
                                                 name: `${user.firstName} ${user.lastName}`
-                                            })));
+                                            }));
+                                            
+                                            // Update the global list for future use
+                                            jurisdictionUsersList = result.data.users.nodes.map(user => ({
+                                                id: user.databaseId,
+                                                firstName: user.firstName,
+                                                lastName: user.lastName
+                                            }));
+                                            
+                                            options.success(contacts);
                                         } catch (error) {
                                             console.error('Error fetching contacts:', error);
                                             options.error(error);
@@ -2082,9 +2398,6 @@
                     console.log('OOJ Grid save event triggered:', e);
                     
                     if (e.model) {
-                        // Update the name arrays based on the ID arrays
-                        updateNameArrays(e.model);
-                        
                         // Force a delayed refresh to ensure server changes are displayed
                         setTimeout(() => {
                             console.log('Performing delayed grid refresh after save');
@@ -2140,8 +2453,8 @@
                         const infectionNode = detail.oojInfection?.nodes[0] || {};
                         const activityNodes = detail.oojActivity?.nodes || [];
                         const methodNodes = detail.methodOfTransmitting?.nodes || [];
-                        const piiNodes = detail.acceptable_for_pii?.nodes || [];
-                        const contactNodes = detail.point_of_contacts?.nodes || [];
+                        const piiNodes = detail.acceptableForPii?.nodes || [];
+                        const contactNodes = detail.pointOfContacts?.nodes || [];
                         
                         return {
                             id: detail.oojId,
@@ -2179,6 +2492,7 @@
                                 oojActivity: Array.isArray(data.oojActivity) ? data.oojActivity.map(id => parseInt(id)) : [],
                                 lastDateOfExposure: data.lastDateOfExposure || "",
                                 dispositionsReturned: data.dispositionsReturned || "",
+                                acceptAndInvestigate: data.acceptAndInvestigate || "",
                                 methodOfTransmitting: Array.isArray(data.methodOfTransmitting) ? data.methodOfTransmitting.map(id => parseInt(id)) : [],
                                 acceptableForPii: Array.isArray(data.acceptableForPii) ? data.acceptableForPii.map(id => parseInt(id)) : [],
                                 notes: data.notes || "",
@@ -2212,6 +2526,7 @@
                                 oojActivity: Array.isArray(data.oojActivity) ? data.oojActivity.map(id => parseInt(id)) : [],
                                 lastDateOfExposure: data.lastDateOfExposure || "",
                                 dispositionsReturned: data.dispositionsReturned || "",
+                                acceptAndInvestigate: data.acceptAndInvestigate || "",
                                 methodOfTransmitting: Array.isArray(data.methodOfTransmitting) ? data.methodOfTransmitting.map(id => parseInt(id)) : [],
                                 acceptableForPii: Array.isArray(data.acceptableForPii) ? data.acceptableForPii.map(id => parseInt(id)) : [],
                                 notes: data.notes || "",
@@ -2240,6 +2555,7 @@
                         oojActivity: { type: "object", defaultValue: [] },
                         lastDateOfExposure: { type: "string" },
                         dispositionsReturned: { type: "string" },
+                        acceptAndInvestigate: { type: "string" },
                         methodOfTransmitting: { type: "object", defaultValue: [] },
                         acceptableForPii: { type: "object", defaultValue: [] },
                         notes: { type: "string", defaultValue: "" },
@@ -2280,5 +2596,74 @@
         password = password.split("").sort(() => 0.5 - Math.random()).join("");
 
         return password;
+    }
+
+    // Add global variables to store the reference lists
+    let oojInfectionList = [];
+    let oojActivityList = [];
+    let methodsOfTransmissionList = [];
+    let acceptableForPiiList = [];
+    let jurisdictionUsersList = [];
+
+    /***********************************************************************
+     * REFERENCE DATA INITIALIZATION
+     ***********************************************************************/
+    
+    /**
+     * Initialize the reference data lists needed for grid templates
+     * @param {string} jurisdictionId - The jurisdiction ID for fetching users
+     * @returns {Promise<void>}
+     */
+    async function initializeReferenceData(jurisdictionId) {
+        console.log('Initializing reference data for grids...');
+        
+        try {
+            // Fetch all reference data in parallel for better performance
+            const [infectionResult, activityResult, methodResult, piiResult, usersResult] = await Promise.all([
+                makeGraphQLRequest(GraphQLQueries.getOOJInfections),
+                makeGraphQLRequest(GraphQLQueries.getOOJActivities),
+                makeGraphQLRequest(GraphQLQueries.getMethodsOfTransmitting),
+                makeGraphQLRequest(GraphQLQueries.getAcceptableForPii),
+                makeGraphQLRequest(GraphQLQueries.getJurisdictionUsers, { jurisdictionId: parseInt(jurisdictionId) })
+            ]);
+            
+            // Transform and store the data
+            oojInfectionList = infectionResult.data.oOJInfections.nodes.map(node => ({
+                id: node.databaseId,
+                name: node.name
+            }));
+            
+            oojActivityList = activityResult.data.oOJActivities.nodes.map(node => ({
+                id: node.databaseId,
+                name: node.name
+            }));
+            
+            methodsOfTransmissionList = methodResult.data.methodsOfTransmitting.nodes.map(node => ({
+                id: node.databaseId,
+                name: node.name
+            }));
+            
+            acceptableForPiiList = piiResult.data.acceptableForPiis.nodes.map(node => ({
+                id: node.databaseId,
+                name: node.name
+            }));
+            
+            jurisdictionUsersList = usersResult.data.users.nodes.map(user => ({
+                id: user.databaseId,
+                firstName: user.firstName,
+                lastName: user.lastName
+            }));
+            
+            console.log('Reference data initialized successfully:', {
+                infections: oojInfectionList.length,
+                activities: oojActivityList.length,
+                methods: methodsOfTransmissionList.length,
+                piiOptions: acceptableForPiiList.length,
+                users: jurisdictionUsersList.length
+            });
+        } catch (error) {
+            console.error('Failed to initialize reference data:', error);
+            showNotification('Failed to load some reference data. Grid displays may be limited.');
+        }
     }
 </script>
