@@ -41,6 +41,63 @@ mutation UpdateJurisdiction($input: UpdateJurisdictionInput!) {
 }
     `;
     
+    var READ_USERS_QUERY = `
+query GetUsersByJurisdiction($jurisdictionId: Int!) {
+  users(where: {jurisdictionDatabaseId: $jurisdictionId}) {
+    nodes {
+      firstName
+      lastName
+      stdContactDetails {
+        confidentialPhone
+        userPhone
+        userFax
+        notesStiHiv
+        stiRole {
+          nodes {
+            name
+          }
+        }
+        hivRole {
+          nodes {
+            name
+          }
+        }
+      }
+    }
+  }
+}
+`;
+
+var UPDATE_USER_QUERY = `
+mutation UpdateUserStdContact($input: UpdateUserStdContactInput!) {
+  updateUserStdContact(input: $input) {
+    user {
+      id
+      databaseId
+      firstName
+      lastName
+      stdContactDetails {
+        userPhone
+        userFax
+        notesStiHiv
+        hivRole {
+          nodes {
+            id
+            name
+          }
+        }
+        stiRole {
+          nodes {
+            id
+            name
+          }
+        }
+      }
+    }
+  }
+}
+`;
+
     // Get current user's jurisdiction
     async function getCurrentUserJurisdiction() {
         const query = `
@@ -129,250 +186,489 @@ mutation UpdateJurisdiction($input: UpdateJurisdictionInput!) {
     }
     
     $(document).ready(function() {
-        console.log('Document ready, initializing application...');
-        // Fetch the current user's jurisdiction
-        getCurrentUserJurisdiction()
-            .then(jurisdictionData => {
-                console.log('Retrieved jurisdiction data:', jurisdictionData);
-                if (!jurisdictionData) {
-                    throw new Error("Could not determine user's jurisdiction");
-                }
-                
-                const jurisdictionId = jurisdictionData.databaseId;
-                console.log('Using jurisdictionId:', jurisdictionId);
-                
-                var dataSource = new kendo.data.DataSource({
-                    transport: {
-                        read: {
-                            contentType: "application/json",
-                            url: "https://hivstiooj.cste.org/graphql",
-                            type: "POST",
-                            data: function() {
-                                console.log('READ operation with jurisdictionId:', jurisdictionId);
-                                const payload = { 
-                                    query: READ_JURISDICTION_QUERY,
-                                    variables: { "databaseId": jurisdictionId }
-                                };
-                                console.log('READ payload:', JSON.stringify(payload));
-                                return payload;
-                            },
-                            success: function(response) {
-                                console.log('GraphQL READ response received:', response);
-                                if (response.data) {
-                                    console.log('Data from server:', JSON.stringify(response.data, null, 2));
-                                    // Check if we have the expected data structure
-                                    if (response.data.jurisdictions && 
-                                        response.data.jurisdictions.edges && 
-                                        response.data.jurisdictions.edges.length > 0) {
-                                        console.log('Found jurisdiction edges:', response.data.jurisdictions.edges.length);
-                                    } else {
-                                        console.warn('Expected data structure not found in response');
-                                    }
-                                } else {
-                                    console.warn('No data in response');
-                                }
-                            },
-                            error: function(e) {
-                                console.error("Error in read operation:", e);
-                                console.error("Error details:", e.xhr ? e.xhr.responseText : e);
-                                showNotification("Failed to retrieve jurisdiction data. Please try again.");
-                            },
-                            dataType: "json"
-                        },
-                        update: {
-                            contentType: "application/json",
-                            url: "https://hivstiooj.cste.org/graphql",
-                            type: "POST",
-                            data: function(model) {
-    console.log('UPDATE operation data payload:', model);
+    console.log('Document ready, initializing application...');
     
-    // Convert the database ID to a global ID format
-    const globalId = btoa(`post:${jurisdictionId}`);
-    console.log('Converting database ID to global ID:', jurisdictionId, '->', globalId);
-    
-    const payload = {
-        query: UPDATE_JURISDICTION_QUERY,
-        variables: {
-            "input": {
-                "id": globalId,  // Include ID inside the input object
-                "title": model.title.rendered,
-                "agencyName": model.jurisdictionDetails.agencyName,
-                "addressJurisdiction": model.jurisdictionDetails.addressJurisdiction,
-                "phoneJurisdiction": model.jurisdictionDetails.phoneJurisdiction,
-                "fipsCode": model.jurisdictionDetails.fipsCode,
-                "faxJurisdiction": model.jurisdictionDetails.faxJurisdiction
+
+    // Fetch the current user's jurisdiction
+    getCurrentUserJurisdiction()
+        .then(jurisdictionData => {
+            console.log('Retrieved jurisdiction data:', jurisdictionData);
+            if (!jurisdictionData) {
+                throw new Error("Could not determine user's jurisdiction");
             }
-        }
-    };
-    console.log('UPDATE payload:', JSON.stringify(payload));
-    return payload;
-},
-                            success: function(response) {
-                                console.log('GraphQL UPDATE response received:', response);
-                                if (response.data && response.data.updateJurisdiction) {
-                                    console.log('Update successful:', JSON.stringify(response.data.updateJurisdiction, null, 2));
-                                    showNotification("Jurisdiction updated successfully.", "success");
+            
+            const jurisdictionId = jurisdictionData.databaseId;
+            console.log('Using jurisdictionId:', jurisdictionId);
+            
+            // JURISDICTION GRID DATASOURCE AND INITIALIZATION
+            var jurisdictionDataSource = new kendo.data.DataSource({
+                transport: {
+                    read: {
+                        contentType: "application/json",
+                        url: "https://hivstiooj.cste.org/graphql",
+                        type: "POST",
+                        data: function() {
+                            console.log('READ operation with jurisdictionId:', jurisdictionId);
+                            const payload = { 
+                                query: READ_JURISDICTION_QUERY,
+                                variables: { "databaseId": jurisdictionId }
+                            };
+                            console.log('READ payload:', JSON.stringify(payload));
+                            return payload;
+                        },
+                        success: function(response) {
+                            console.log('GraphQL READ response received:', response);
+                            if (response.data) {
+                                console.log('Data from server:', JSON.stringify(response.data, null, 2));
+                                // Check if we have the expected data structure
+                                if (response.data.jurisdictions && 
+                                    response.data.jurisdictions.edges && 
+                                    response.data.jurisdictions.edges.length > 0) {
+                                    console.log('Found jurisdiction edges:', response.data.jurisdictions.edges.length);
                                 } else {
-                                    console.warn('Unexpected response format for update');
+                                    console.warn('Expected data structure not found in response');
                                 }
-                            },
-                            error: function(e) {
-                                console.error("Error in update operation:", e);
-                                console.error("Error details:", e.xhr ? e.xhr.responseText : e);
-                                showNotification("Failed to update jurisdiction data. Please try again.");
+                            } else {
+                                console.warn('No data in response');
                             }
                         },
-                        parameterMap: function(options, operation) {
-                            console.log('parameterMap called with operation:', operation, 'options:', options);
-                            return kendo.stringify({
-                                query: options.query,
-                                variables: options.variables
-                            });
+                        error: function(e) {
+                            console.error("Error in read operation:", e);
+                            console.error("Error details:", e.xhr ? e.xhr.responseText : e);
+                            showNotification("Failed to retrieve jurisdiction data. Please try again.");
+                        },
+                        dataType: "json"
+                    },
+                    update: {
+                        contentType: "application/json",
+                        url: "https://hivstiooj.cste.org/graphql",
+                        type: "POST",
+                        data: function(model) {
+                            console.log('UPDATE operation data payload:', model);
+                            
+                            // Convert the database ID to a global ID format
+                            const globalId = btoa(`post:${jurisdictionId}`);
+                            console.log('Converting database ID to global ID:', jurisdictionId, '->', globalId);
+                            
+                            const payload = {
+                                query: UPDATE_JURISDICTION_QUERY,
+                                variables: {
+                                    "input": {
+                                        "id": globalId,
+                                        "title": model.title.rendered,
+                                        "agencyName": model.jurisdictionDetails.agencyName,
+                                        "addressJurisdiction": model.jurisdictionDetails.addressJurisdiction,
+                                        "phoneJurisdiction": model.jurisdictionDetails.phoneJurisdiction,
+                                        "fipsCode": model.jurisdictionDetails.fipsCode,
+                                        "faxJurisdiction": model.jurisdictionDetails.faxJurisdiction
+                                    }
+                                }
+                            };
+                            console.log('UPDATE payload:', JSON.stringify(payload));
+                            return payload;
+                        },
+                        success: function(response) {
+                            console.log('GraphQL UPDATE response received:', response);
+                            if (response.data && response.data.updateJurisdiction) {
+                                console.log('Update successful:', JSON.stringify(response.data.updateJurisdiction, null, 2));
+                                showNotification("Jurisdiction updated successfully.", "success");
+                            } else {
+                                console.warn('Unexpected response format for update');
+                            }
+                        },
+                        error: function(e) {
+                            console.error("Error in update operation:", e);
+                            console.error("Error details:", e.xhr ? e.xhr.responseText : e);
+                            showNotification("Failed to update jurisdiction data. Please try again.");
                         }
                     },
-                    schema: {
-                        data: function(response) {
-        console.log('Schema data response received:', response);
-        
-        // Check for GraphQL errors
-        if (response.errors && response.errors.length > 0) {
-            console.error('GraphQL errors:', response.errors);
-            showNotification('Error retrieving data: ' + response.errors[0].message);
-            return [];
-        }
-        
-        var data = response.data;
-        console.log('Parsed data object:', data);
+                    parameterMap: function(options, operation) {
+                        console.log('parameterMap called with operation:', operation, 'options:', options);
+                        return kendo.stringify({
+                            query: options.query,
+                            variables: options.variables
+                        });
+                    }
+                },
+                schema: {
+                    data: function(response) {
+                        console.log('Schema data response received:', response);
+                        
+                        // Check for GraphQL errors
+                        if (response.errors && response.errors.length > 0) {
+                            console.error('GraphQL errors:', response.errors);
+                            showNotification('Error retrieving data: ' + response.errors[0].message);
+                            return [];
+                        }
+                        
+                        var data = response.data;
+                        console.log('Parsed data object:', data);
 
-        if (!data) {
-            console.error('No data received in response');
-            return [];
-        }
+                        if (!data) {
+                            console.error('No data received in response');
+                            return [];
+                        }
 
-        // Handle read operation response
-        if (data.jurisdictions && data.jurisdictions.edges && data.jurisdictions.edges.length > 0) {
-            console.log('Processing jurisdictions data from read operation');
-            // Extract the node from the first edge
-            const node = data.jurisdictions.edges[0].node;
-            console.log('Extracted node:', node);
-            
-            // Ensure the node has the expected structure
-            if (!node.title || !node.jurisdictionDetails) {
-                console.error('Node does not have expected structure:', node);
-                return [];
-            }
-            
-            // Transform the node to match the expected model format
-            const transformedNode = {
-                id: node.id,
-                databaseId: node.databaseId,
-                title: { rendered: node.title },
-                modified: node.modified,
-                jurisdictionDetails: node.jurisdictionDetails
-            };
-            
-            console.log('Transformed node for grid:', transformedNode);
-            return [transformedNode];
-        }
-        // Handle update operation response
-        else if (data.updateJurisdiction && data.updateJurisdiction.jurisdiction) { 
-            console.log('Found updateJurisdiction data:', data.updateJurisdiction.jurisdiction);
-            // Format the update response to match the expected model structure
-            const jurisdiction = data.updateJurisdiction.jurisdiction;
-            const transformedNode = {
-                id: jurisdiction.id,
-                databaseId: jurisdiction.databaseId,
-                title: { rendered: jurisdiction.title }, // Convert simple title to object with rendered property
-                modified: jurisdiction.modified || new Date().toISOString(),
-                jurisdictionDetails: jurisdiction.jurisdictionDetails
-            };
-            console.log('Transformed update node for grid:', transformedNode);
-            return [transformedNode]; 
-        }
-        else {
-            console.warn('No jurisdiction or updateJurisdiction data found in response', data);
-            return [];
-        }
-    },
-                        model: {
-                            id: "id",
-                            fields: {
-                                id: { editable: false, nullable: true },
-                                title: {
-                                    defaultValue: { rendered: "" },
-                                    validation: { required: true }
+                        // Handle read operation response
+                        if (data.jurisdictions && data.jurisdictions.edges && data.jurisdictions.edges.length > 0) {
+                            console.log('Processing jurisdictions data from read operation');
+                            // Extract the node from the first edge
+                            const node = data.jurisdictions.edges[0].node;
+                            console.log('Extracted node:', node);
+                            
+                            // Ensure the node has the expected structure
+                            if (!node.title || !node.jurisdictionDetails) {
+                                console.error('Node does not have expected structure:', node);
+                                return [];
+                            }
+                            
+                            // Transform the node to match the expected model format
+                            const transformedNode = {
+                                id: node.id,
+                                databaseId: node.databaseId,
+                                title: { rendered: node.title },
+                                modified: node.modified,
+                                jurisdictionDetails: node.jurisdictionDetails
+                            };
+                            
+                            console.log('Transformed node for grid:', transformedNode);
+                            return [transformedNode];
+                        }
+                        // Handle update operation response
+                        else if (data.updateJurisdiction && data.updateJurisdiction.jurisdiction) { 
+                            console.log('Found updateJurisdiction data:', data.updateJurisdiction.jurisdiction);
+                            // Format the update response to match the expected model structure
+                            const jurisdiction = data.updateJurisdiction.jurisdiction;
+                            const transformedNode = {
+                                id: jurisdiction.id,
+                                databaseId: jurisdiction.databaseId,
+                                title: { rendered: jurisdiction.title },
+                                modified: jurisdiction.modified || new Date().toISOString(),
+                                jurisdictionDetails: jurisdiction.jurisdictionDetails
+                            };
+                            console.log('Transformed update node for grid:', transformedNode);
+                            return [transformedNode]; 
+                        }
+                        else {
+                            console.warn('No jurisdiction or updateJurisdiction data found in response', data);
+                            return [];
+                        }
+                    },
+                    model: {
+                        id: "id",
+                        fields: {
+                            id: { editable: false, nullable: true },
+                            title: {
+                                defaultValue: { rendered: "" },
+                                validation: { required: true }
+                            },
+                            modified: { type: "string", validation: { required: false } },
+                            jurisdictionDetails: {
+                                defaultValue: {
+                                    agencyName: "",
+                                    addressJurisdiction: "",
+                                    phoneJurisdiction: "",
+                                    fipsCode: "",
+                                    faxJurisdiction: ""
                                 },
-                                modified: { type: "string", validation: { required: false } },
-                                jurisdictionDetails: {
-                                    defaultValue: {
-                                        agencyName: "",
-                                        addressJurisdiction: "",
-                                        phoneJurisdiction: "",
-                                        fipsCode: "",
-                                        faxJurisdiction: ""
-                                    },
-                                    fields: {
-                                        agencyName: { type: "string", validation: { required: true } },
-                                        addressJurisdiction: { type: "string", validation: { required: true } },
-                                        phoneJurisdiction: { type: "string", validation: { required: true } },
-                                        fipsCode: { type: "string" },
-                                        faxJurisdiction: { type: "string" }
-                                    }
+                                fields: {
+                                    agencyName: { type: "string", validation: { required: true } },
+                                    addressJurisdiction: { type: "string", validation: { required: true } },
+                                    phoneJurisdiction: { type: "string", validation: { required: true } },
+                                    fipsCode: { type: "string" },
+                                    faxJurisdiction: { type: "string" }
                                 }
                             }
-                        }
-                    },
-                    error: function(e) {
-                        console.error("DataSource error:", e);
-                        showNotification("An error occurred with the data source. Please try again.");
-                    },
-                    requestStart: function() {
-                        console.log("DataSource request started");
-                    },
-                    requestEnd: function(e) {
-                        console.log("DataSource request ended:", e);
-                    },
-                    pageSize: 20
-                });
-    
-                console.log('Creating Kendo Grid with dataSource:', dataSource);
-                $("#juris_grid").kendoGrid({
-                    dataSource: dataSource,
-                    height: 550,
-                    sortable: true,
-                    toolbar: ["save", "cancel"],
-                    editable: "inline",
-                    columns: [
-                        { field: "title.rendered", title: "Jurisdiction Name" },
-                        { field: "jurisdictionDetails.fipsCode", title: "FIPS Code" },
-                        { field: "jurisdictionDetails.agencyName", title: "Agency Name" },
-                        { field: "jurisdictionDetails.addressJurisdiction", title: "Agency Address" },
-                        { field: "jurisdictionDetails.phoneJurisdiction", title: "Agency Phone (Main)" },
-                        { field: "jurisdictionDetails.faxJurisdiction", title: "Agency Fax" },
-                        { command: ["edit"], title: "&nbsp;", width: "250px" }
-                    ],
-                    dataBound: function(e) {
-                        console.log("Grid data bound event fired");
-                        const view = e.sender.dataSource.view();
-                        console.log("Grid data view:", view);
-                        if (view.length === 0) {
-                            console.warn("No data items to display in grid");
-                            // Add a custom message to the grid if empty
-                            const emptyMessage = $('<div class="k-grid-norecords">No jurisdiction data available.</div>');
-                            e.sender.element.find(".k-grid-content").append(emptyMessage);
                         }
                     }
-                });
-                console.log('Kendo Grid initialized');
-                
-                // Force a read on the dataSource to ensure data is loaded
-                dataSource.read();
-                console.log('Manually triggered dataSource read');
-            })
-            .catch(error => {
-                console.error("Error initializing application:", error);
-                console.error("Error details:", error.stack || error.message || 'No additional error details');
-                showNotification("Failed to initialize application. Please refresh and try again.");
+                },
+                error: function(e) {
+                    console.error("DataSource error:", e);
+                    showNotification("An error occurred with the data source. Please try again.");
+                },
+                requestStart: function() {
+                    console.log("DataSource request started");
+                },
+                requestEnd: function(e) {
+                    console.log("DataSource request ended:", e);
+                },
+                pageSize: 20
             });
-    });
-    </script>
+            
+            // USERS GRID DATASOURCE AND INITIALIZATION
+            var usersDataSource = new kendo.data.DataSource({
+                transport: {
+                    read: {
+                        contentType: "application/json",
+                        url: "https://hivstiooj.cste.org/graphql",
+                        type: "POST",
+                        data: function() {
+                            console.log('READ operation for users with jurisdictionId:', jurisdictionId);
+                            const payload = { 
+                                query: READ_USERS_QUERY,
+                                variables: { "jurisdictionId": jurisdictionId }
+                            };
+                            console.log('READ payload for users:', JSON.stringify(payload));
+                            return payload;
+                        },
+                        success: function(response) {
+                            console.log('GraphQL READ response received for users:', response);
+                            if (response.data) {
+                                console.log('User data from server:', JSON.stringify(response.data, null, 2));
+                                if (response.data.users && 
+                                    response.data.users.edges) {
+                                    console.log('Found user edges:', response.data.users.edges.length);
+                                } else {
+                                    console.warn('Expected user data structure not found in response');
+                                }
+                            } else {
+                                console.warn('No data in response for users query');
+                            }
+                        },
+                        error: function(e) {
+                            console.error("Error in read operation for users:", e);
+                            console.error("Error details:", e.xhr ? e.xhr.responseText : e);
+                            showNotification("Failed to retrieve user data. Please try again.");
+                        },
+                        dataType: "json"
+                    },
+                    update: {
+                        contentType: "application/json",
+                        url: "https://hivstiooj.cste.org/graphql",
+                        type: "POST",
+                        data: function(model) {
+                            console.log('UPDATE operation for user:', model);
+                            
+                            // Collect hivRole and stiRole IDs from the model
+                            const hivRoleIds = Array.isArray(model.hivRole) ? 
+                                model.hivRole.map(role => parseInt(role.id)) : [];
+                            
+                            const stiRoleIds = Array.isArray(model.stiRole) ? 
+                                model.stiRole.map(role => parseInt(role.id)) : [];
+                            
+                            const payload = {
+                                query: UPDATE_USER_QUERY,
+                                variables: {
+                                    "input": {
+                                        "userId": model.id,
+                                        "userPhone": model.userPhone || "",
+                                        "userFax": model.userFax || "",
+                                        "notesStiHiv": model.notesStiHiv || "",
+                                        "hivRole": hivRoleIds,
+                                        "stiRole": stiRoleIds,
+                                        "userJurisdiction": jurisdictionId
+                                    }
+                                }
+                            };
+                            
+                            console.log('UPDATE payload for user:', JSON.stringify(payload));
+                            return payload;
+                        },
+                        success: function(response) {
+                            console.log('GraphQL UPDATE response received for user:', response);
+                            if (response.data && response.data.updateUserStdContact) {
+                                console.log('Update successful for user:', JSON.stringify(response.data.updateUserStdContact, null, 2));
+                                showNotification("User information updated successfully.", "success");
+                            } else {
+                                console.warn('Unexpected response format for user update');
+                            }
+                        },
+                        error: function(e) {
+                            console.error("Error in update operation for user:", e);
+                            console.error("Error details:", e.xhr ? e.xhr.responseText : e);
+                            showNotification("Failed to update user data. Please try again.");
+                        }
+                    },
+                    parameterMap: function(options, operation) {
+                        console.log('parameterMap called for users with operation:', operation, 'options:', options);
+                        return kendo.stringify({
+                            query: options.query,
+                            variables: options.variables
+                        });
+                    }
+                },
+                schema: {
+                    data: function(response) {
+                        console.log('Schema data response received for users:', response);
+                        
+                        // Check for GraphQL errors
+                        if (response.errors && response.errors.length > 0) {
+                            console.error('GraphQL errors in user query:', response.errors);
+                            showNotification('Error retrieving user data: ' + response.errors[0].message);
+                            return [];
+                        }
+                        
+                        var data = response.data;
+                        console.log('Parsed data object for users:', data);
+
+                        if (!data) {
+                            console.error('No data received in response for users');
+                            return [];
+                        }
+
+                        // Handle read operation response for users
+                        if (data.users && data.users.nodes) {
+                            console.log('Processing users data from read operation');
+                            
+                            // Transform the nodes to match the expected model format
+                            const transformedNodes = data.users.nodes.map(node => {
+                                return {
+                                    id: node.id,
+                                    databaseId: node.databaseId,
+                                    firstName: node.firstName,
+                                    lastName: node.lastName,
+                                    confidentialPhone: node.stdContactDetails?.confidentialPhone || "",
+                                    userPhone: node.stdContactDetails?.userPhone || "",
+                                    notesStiHiv: node.stdContactDetails?.notesStiHiv || "",
+                                    hivRole: node.stdContactDetails?.hivRole?.nodes || [],
+                                    stiRole: node.stdContactDetails?.stiRole?.nodes || []
+                                };
+                            });
+                            
+                            console.log('Transformed nodes for user grid:', transformedNodes);
+                            return transformedNodes;
+                        }
+                        // Handle update operation response
+                        else if (data.updateUserStdContact && data.updateUserStdContact.user) { 
+                            console.log('Found updateUserStdContact data:', data.updateUserStdContact.user);
+                            
+                            // Format the update response to match the expected model structure
+                            const user = data.updateUserStdContact.user;
+                            const transformedNode = {
+                                id: user.id,
+                                databaseId: user.databaseId,
+                                firstName: user.firstName,
+                                lastName: user.lastName,
+                                confidentialPhone: user.stdContactDetails?.confidentialPhone || "",
+                                userPhone: user.stdContactDetails?.userPhone || "",
+                                notesStiHiv: user.stdContactDetails?.notesStiHiv || "",
+                                hivRole: user.stdContactDetails?.hivRole?.nodes || [],
+                                stiRole: user.stdContactDetails?.stiRole?.nodes || []
+                            };
+                            
+                            console.log('Transformed update node for user grid:', transformedNode);
+                            return [transformedNode]; 
+                        }
+                        else {
+                            console.warn('No users data found in response', data);
+                            return [];
+                        }
+                    },
+                    model: {
+                        id: "id",
+                        fields: {
+                            id: { editable: false, nullable: true },
+                            databaseId: { editable: false, nullable: true },
+                            firstName: { editable: false, type: "string" },
+                            lastName: { editable: false, type: "string" },
+                            confidentialPhone: { type: "string" },
+                            userPhone: { type: "string" },
+                            notesStiHiv: { type: "string" },
+                            hivRole: { defaultValue: [] },
+                            stiRole: { defaultValue: [] }
+                        }
+                    }
+                },
+                error: function(e) {
+                    console.error("DataSource error for users:", e);
+                    showNotification("An error occurred with the user data source. Please try again.");
+                },
+                requestStart: function() {
+                    console.log("DataSource request started for users");
+                },
+                requestEnd: function(e) {
+                    console.log("DataSource request ended for users:", e);
+                },
+                pageSize: 20
+            });
+
+            // Initialize jurisdiction grid
+            console.log('Creating Kendo Grid with dataSource:', jurisdictionDataSource);
+            $("#juris_grid").kendoGrid({
+                dataSource: jurisdictionDataSource,
+                height: 175,
+                sortable: true,
+                toolbar: ["save", "cancel"],
+                editable: "inline",
+                columns: [
+                    { field: "title.rendered", title: "Jurisdiction Name" },
+                    { field: "jurisdictionDetails.fipsCode", title: "FIPS Code" },
+                    { field: "jurisdictionDetails.agencyName", title: "Agency Name" },
+                    { field: "jurisdictionDetails.addressJurisdiction", title: "Agency Address" },
+                    { field: "jurisdictionDetails.phoneJurisdiction", title: "Agency Phone (Main)" },
+                    { field: "jurisdictionDetails.faxJurisdiction", title: "Agency Fax" },
+                    { command: ["edit"], title: "&nbsp;", width: "250px" }
+                ],
+                dataBound: function(e) {
+                    console.log("Grid data bound event fired");
+                    const view = e.sender.dataSource.view();
+                    console.log("Grid data view:", view);
+                    if (view.length === 0) {
+                        console.warn("No data items to display in grid");
+                        // Add a custom message to the grid if empty
+                        const emptyMessage = $('<div class="k-grid-norecords">No jurisdiction data available.</div>');
+                        e.sender.element.find(".k-grid-content").append(emptyMessage);
+                    }
+                }
+            });
+            
+            // Initialize users grid
+            console.log('Creating Kendo Grid for users with dataSource:', usersDataSource);
+            $("#users_grid").kendoGrid({
+                dataSource: usersDataSource,
+                height: 550,
+                scrollable: true,
+                sortable: true,
+                toolbar: ["save", "cancel"],
+                editable: "inline",
+                columns: [
+                    { field: "firstName", title: "First Name", width: 150 },
+                    { field: "lastName", title: "Last Name", width: 150 },
+                    { field: "confidentialPhone", title: "Confidential Phone", width: 150 },
+                    { field: "userPhone", title: "Phone", width: 130 },
+                    { field: "notesStiHiv", title: "Notes", width: 200 },
+                    { 
+                        field: "hivRole", 
+                        title: "HIV Roles", 
+                        width: 200,
+                        template: function(dataItem) {
+                            return dataItem.hivRole && dataItem.hivRole.length ? 
+                                dataItem.hivRole.map(r => r.name).join(', ') : '—';
+                        },
+                        editor: function(container, options) {
+                            // This is a placeholder for a more complex editor if needed
+                            // For now, we'll just display the current values
+                            var currentRoles = options.model.hivRole.map(r => r.name).join(', ') || '—';
+                            container.text(currentRoles);
+                            console.log('HIV Roles editor:', options.model.hivRole);
+                        }
+                    },
+                    { command: ["edit"], title: "&nbsp;", width: "150px" }
+                ],
+                dataBound: function(e) {
+                    console.log("Users grid data bound event fired");
+                    const view = e.sender.dataSource.view();
+                    console.log("Users grid data view:", view);
+                    if (view.length === 0) {
+                        console.warn("No user data items to display in grid");
+                        // Add a custom message to the grid if empty
+                        const emptyMessage = $('<div class="k-grid-norecords">No user data available.</div>');
+                        e.sender.element.find(".k-grid-content").append(emptyMessage);
+                    }
+                }
+            });
+            
+            // Force a read on both DataSources to ensure data is loaded
+            jurisdictionDataSource.read();
+            console.log('Manually triggered jurisdictionDataSource read');
+            
+            usersDataSource.read();
+            console.log('Manually triggered usersDataSource read');
+        })
+        .catch(error => {
+            console.error("Error initializing application:", error);
+            console.error("Error details:", error.stack || error.message || 'No additional error details');
+            showNotification("Failed to initialize application. Please refresh and try again.");
+        });
+});
+</script>

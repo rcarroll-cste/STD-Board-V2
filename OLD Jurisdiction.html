@@ -1,0 +1,1085 @@
+<script type="text/javascript">
+    // Helper function to make GraphQL requests with improved error handling
+    const makeGraphQLRequest = async (query, variables = {}) => {
+        const graphqlEndpoint = 'https://hivstiooj.cste.org/graphql';
+        
+        console.log('Making GraphQL request:', { 
+            query, 
+            variables,
+            url: graphqlEndpoint
+        });
+        
+        try {
+            const response = await jQuery.ajax({
+                url: graphqlEndpoint,
+                method: 'POST',
+                data: JSON.stringify({
+                    query: query,
+                    variables: variables
+                }),
+                contentType: 'application/json',
+                dataType: 'json',
+                xhrFields: {
+                    withCredentials: true
+                },
+                headers: {
+                    'Accept': 'application/json'
+                }
+            });
+            
+            // Check if response contains errors
+            if (response.errors) {
+                console.error('GraphQL response contains errors:', response.errors);
+                throw new Error(response.errors[0]?.message || 'Unknown GraphQL error');
+            }
+            
+            console.log('GraphQL response:', response);
+            return response;
+        } catch (error) {
+            console.error('GraphQL error details:', {
+                endpoint: graphqlEndpoint,
+                status: error.status,
+                statusText: error.statusText,
+                responseText: error.responseText,
+                error: error
+            });
+            throw error;
+        }
+    };
+    
+    // First get the current user's jurisdiction with enhanced debugging
+    const getCurrentUserJurisdiction = async () => {
+        console.log('==== GetCurrentUserJurisdiction Debug ====');
+        
+        const query = `
+            query CurrentUserJurisdiction {
+                viewer {
+                    sTDContactDetails {
+                        userJurisdiction {
+                            nodes {
+                                id
+                            }
+                        }
+                    }
+                }
+            }
+        `;
+
+        try {
+            console.log('Executing viewer jurisdiction query');
+            const response = await makeGraphQLRequest(query);
+            
+            console.log('Raw viewer response:', response);
+            
+            const jurisdictionId = response?.data?.viewer?.sTDContactDetails
+                ?.userJurisdiction?.nodes?.[0]?.id;
+                
+            console.log('Extracted jurisdiction ID:', jurisdictionId);
+            console.log('==== End GetCurrentUserJurisdiction Debug ====');
+            
+            return jurisdictionId;
+        } catch (error) {
+            console.error('Error getting current user jurisdiction:', {
+                error: error.message,
+                fullError: error
+            });
+            return null;
+        }
+    };
+
+    // GraphQL mutations for CRUD operations
+    const mutations = {
+        createUser: `
+            mutation CreateUser($input: CreateUserInput!) {
+                createUser(input: $input) {
+                    user {
+                        id
+                        email
+                        sTDContactDetails {
+                            firstName
+                            lastName
+                        }
+                    }
+                }
+            }
+        `,
+        updateUser: `
+            mutation UpdateUser($input: UpdateUserInput!) {
+                updateUser(input: $input) {
+                    user {
+                        id
+                        email
+                        sTDContactDetails {
+                            firstName
+                            lastName
+                        }
+                    }
+                }
+            }
+        `,
+        deleteUser: `
+            mutation DeleteUser($input: DeleteUserInput!) {
+                deleteUser(input: $input) {
+                    deletedId
+                }
+            }
+        `,
+        updateJurisdiction: `
+            mutation UpdateJurisdiction($input: UpdateJurisdictionInput!) {
+                updateStdJurisdiction(input: $input) {
+                    stdJurisdiction {
+                        id
+                        title
+                        acf {
+                            agencyName
+                            addressJurisdiction
+                            phoneJurisdiction
+                            fipsCode
+                            faxJurisdiction
+                            oojDetails {
+                                oojId
+                                oojInfection
+                                oojActivity
+                                acceptAndInvestigateLastDateOfExposure
+                                dispositionsReturned
+                                informationReturned
+                                acceptAndInvestigate
+                                methodOfTransmitting
+                                confidentialEmail
+                                confidentialPhone
+                                pointOfContacts
+                                notes
+                            }
+                        }
+                    }
+                }
+            }
+        `,
+        updateOojDetails: `
+            mutation UpdateOojDetails($input: UpdateOojDetailsInput!) {
+                updateStdJurisdiction(input: $input) {
+                    stdJurisdiction {
+                        id
+                        acf {
+                            oojDetails {
+                                oojId
+                                oojInfection
+                                oojActivity
+                                acceptAndInvestigateLastDateOfExposure
+                                dispositionsReturned
+                                informationReturned
+                                acceptAndInvestigate
+                                methodOfTransmitting
+                                confidentialEmail
+                                confidentialPhone
+                                pointOfContacts
+                                notes
+                            }
+                        }
+                    }
+                }
+            }
+        `
+    };
+    
+    // CRUD operation handlers
+    const userOperations = {
+        create: async (userData) => {
+            console.log('Creating user with data:', userData);
+            try {
+                const response = await makeGraphQLRequest(mutations.createUser, {
+                    input: {
+                        email: userData.email,
+                        firstName: userData.firstName,
+                        lastName: userData.lastName,
+                        jurisdictionId: userData.jurisdictionId
+                    }
+                });
+                console.log('Create user response:', response);
+                return response?.data?.createUser?.user;
+            } catch (error) {
+                console.error('Error creating user:', error);
+                throw error;
+            }
+        },
+    
+        update: async (userData) => {
+            console.log('Updating user with data:', userData);
+            try {
+                const response = await makeGraphQLRequest(mutations.updateUser, {
+                    input: {
+                        id: userData.id,
+                        email: userData.email,
+                        firstName: userData.firstName,
+                        lastName: userData.lastName
+                    }
+                });
+                console.log('Update user response:', response);
+                return response?.data?.updateUser?.user;
+            } catch (error) {
+                console.error('Error updating user:', error);
+                throw error;
+            }
+        },
+    
+        delete: async (userId) => {
+            console.log('Deleting user:', userId);
+            try {
+                const response = await makeGraphQLRequest(mutations.deleteUser, {
+                    input: {
+                        id: userId
+                    }
+                });
+                console.log('Delete user response:', response);
+                return response?.data?.deleteUser?.deletedId;
+            } catch (error) {
+                console.error('Error deleting user:', error);
+                throw error;
+            }
+        }
+    };
+    
+    // Query to get users by jurisdiction with enhanced debugging
+    const getUsersByJurisdiction = async (jurisdictionId) => {
+        console.log('==== GetUsersByJurisdiction Debug ====');
+        console.log('Attempting to fetch users with jurisdiction:', jurisdictionId);
+        
+        if (!jurisdictionId) {
+            console.error('No jurisdiction ID provided to getUsersByJurisdiction');
+            return [];
+        }
+
+        const query = `
+            query GetUsersByJurisdiction($jurisdictionId: ID!) {
+                users(where: {jurisdictionId: $jurisdictionId}) {
+                    edges {
+                        node {
+                            id
+                            firstName
+                            lastName
+                            sTDContactDetails {
+                                userFax
+                                userPhone
+                                notesStiHiv
+                                hivRole {
+                                    nodes {
+                                        id
+                                        name
+                                    }
+                                }
+                                userJurisdiction {
+                                    nodes {
+                                        id
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        `;
+    
+        try {
+            console.log('Executing GraphQL query with variables:', { jurisdictionId });
+            const response = await makeGraphQLRequest(query, {
+                jurisdictionId: jurisdictionId
+            });
+            
+            console.log('Raw GraphQL Response:', response);
+            
+            // Log each user's jurisdiction and details
+            response?.data?.users?.edges?.forEach((edge, index) => {
+                const user = edge.node;
+                console.log('User ${index} details:', {
+                    id: user.id,
+                    name: `${user.firstName} ${user.lastName}`,
+                    jurisdiction: user?.sTDContactDetails?.userJurisdiction?.nodes?.[0]?.id,
+                    hivRoles: user?.sTDContactDetails?.hivRole?.nodes?.map(r => r.name) || []
+                });
+            });
+
+            // Transform the edges/node structure to a flat array
+            const users = response?.data?.users?.edges?.map(edge => ({
+                id: edge.node.id,
+                firstName: edge.node.firstName,
+                lastName: edge.node.lastName,
+                userFax: edge.node.sTDContactDetails?.userFax,
+                userPhone: edge.node.sTDContactDetails?.userPhone,
+                notesStiHiv: edge.node.sTDContactDetails?.notesStiHiv,
+                hivRoles: edge.node.sTDContactDetails?.hivRole?.nodes || []
+            })) || [];
+
+            console.log('Transformed users array:', {
+                total: users.length,
+                users: users
+            });
+            console.log('==== End GetUsersByJurisdiction Debug ====');
+
+            return users;
+        } catch (error) {
+            console.error('GraphQL Query Error:', {
+                query,
+                variables: { jurisdictionId },
+                error: error.message,
+                fullError: error
+            });
+            throw error;
+        }
+    };
+    
+    // Initialize Kendo Grid with enhanced debugging
+    const initializeGrid = (users, jurisdictionId) => {
+        console.log('Initializing grid with users:', {
+            userCount: users.length,
+            jurisdictionId,
+            users: users
+        });
+        
+        jQuery("#jurisdictionUsersGrid").kendoGrid({
+            dataSource: {
+                data: users,
+                schema: {
+                    model: {
+                        id: "id",
+                        fields: {
+                            id: { type: "string", editable: false },
+                            firstName: { 
+                                type: "string", 
+                                validation: { 
+                                    required: true,
+                                    requiredMsg: "First Name is required"
+                                } 
+                            },
+                            lastName: { 
+                                type: "string", 
+                                validation: { 
+                                    required: true,
+                                    requiredMsg: "Last Name is required"
+                                } 
+                            },
+                            userFax: { type: "string", defaultValue: null },
+                            userPhone: { type: "string", defaultValue: null },
+                            notesStiHiv: { type: "string", defaultValue: null },
+                            hivRoles: { defaultValue: [] }
+                        }
+                    }
+                },
+                change: function(e) {
+                    console.log('DataSource change event:', {
+                        action: e.action,
+                        items: e.items,
+                        field: e.field
+                    });
+                }
+            },
+            height: 550,
+            scrollable: true,
+            sortable: true,           
+            editable: "inline",
+            columns: [
+                {
+                    field: "firstName",
+                    title: "First Name",
+                    width: 150
+                },
+                {
+                    field: "lastName",
+                    title: "Last Name",
+                    width: 150
+                },
+                {
+                    field: "userPhone",
+                    title: "Phone",
+                    width: 130,
+                    template: "#= userPhone || '—' #"
+                },
+                {
+                    field: "userFax",
+                    title: "Fax",
+                    width: 130,
+                    template: "#= userFax || '—' #"
+                },
+                {
+                    field: "notesStiHiv",
+                    title: "Notes",
+                    width: 200,
+                    template: "#= notesStiHiv || '—' #"
+                },
+                {
+                    field: "hivRoles",
+                    title: "HIV Roles",
+                    width: 250,
+                    template: "#= hivRoles && hivRoles.length ? hivRoles.map(r => r.name).join(', ') : '—' #",
+                    editor: function(container, options) {
+                        // Disable editing for HIV Roles as it requires special handling
+                        container.text(options.model.hivRoles.map(r => r.name).join(', ') || '—');
+                        console.log('HIV Roles editor:', options.model.hivRoles);
+                    }
+                },
+                { 
+                    command: ["edit", "destroy"], 
+                    title: "&nbsp;",
+                    width: 130
+                }
+            ],
+            toolbar: ["create"],
+            edit: function(e) {
+                console.log('Edit event triggered:', {
+                    isNew: e.model.isNew(),
+                    model: e.model.toJSON(),
+                    container: e.container
+                });
+
+                // If editing existing record
+                if (!e.model.isNew()) {
+                    console.log('Editing existing record:', e.model.id);
+                }
+            },
+            save: async function(e) {
+                console.log('Save event triggered:', {
+                    isNew: e.model.isNew(),
+                    data: e.model.toJSON()
+                });
+
+                try {
+                    const userData = {
+                        firstName: e.model.firstName,
+                        lastName: e.model.lastName,
+                        userPhone: e.model.userPhone || null,
+                        userFax: e.model.userFax || null,
+                        notesStiHiv: e.model.notesStiHiv || null
+                    };
+
+                    if (!e.model.id) {
+                        console.log('Creating new user with data:', userData);
+                        userData.jurisdictionId = jurisdictionId;
+                        await userOperations.create(userData);
+                    } else {
+                        console.log('Updating user with data:', {
+                            id: e.model.id,
+                            ...userData
+                        });
+                        userData.id = e.model.id;
+                        await userOperations.update(userData);
+                    }
+                } catch (error) {
+                    console.error('Error in save operation:', {
+                        error,
+                        model: e.model.toJSON()
+                    });
+                    e.preventDefault();
+                    alert("Error saving user: " + error.message);
+                }
+            },
+            cancel: function(e) {
+                console.log('Cancel event triggered:', {
+                    isNew: e.model.isNew(),
+                    model: e.model.toJSON()
+                });
+            },
+            remove: async function(e) {
+                console.log('Remove event triggered:', {
+                    id: e.model.id,
+                    model: e.model.toJSON()
+                });
+
+                try {
+                    await userOperations.delete(e.model.id);
+                } catch (error) {
+                    console.error('Error in delete operation:', {
+                        error,
+                        id: e.model.id
+                    });
+                    e.preventDefault();
+                    alert("Error deleting user: " + error.message);
+                }
+            },
+            dataBound: function(e) {
+                console.log('Grid data bound:', {
+                    total: this.dataSource.total(),
+                    view: this.dataSource.view()
+                });
+            }
+        });
+    };
+    
+    // Fetch all reference data needed for the grids
+    const fetchReferenceData = async () => {
+        console.log('==== Fetching Reference Data ====');
+        
+        try {
+            const [
+                methodsResponse,
+                infectionsResponse,
+                activitiesResponse,
+                hivRolesResponse,
+                stiRolesResponse
+            ] = await Promise.all([
+                makeGraphQLRequest(queries.methodsOfTransmission),
+                makeGraphQLRequest(queries.oojInfections),
+                makeGraphQLRequest(queries.oojActivities),
+                makeGraphQLRequest(queries.hivRoles),
+                makeGraphQLRequest(queries.stiRoles)
+            ]);
+
+            const referenceData = {
+                methodsOfTransmission: methodsResponse.data.iccrMethodOfTransmittings.nodes,
+                oojInfections: infectionsResponse.data.acfOojInfections.nodes,
+                oojActivities: activitiesResponse.data.acfOojActivities.nodes,
+                hivRoles: hivRolesResponse.data.hivRoles.nodes,
+                stiRoles: stiRolesResponse.data.stiRoles.nodes
+            };
+
+            console.log('Reference data fetched:', referenceData);
+            return referenceData;
+        } catch (error) {
+            console.error('Error fetching reference data:', error);
+            throw error;
+        }
+    };
+
+    // Fetch jurisdiction details
+    const getJurisdictionDetails = async (jurisdictionId) => {
+        console.log('==== Fetching Jurisdiction Details ====');
+        console.log('Jurisdiction ID:', jurisdictionId);
+
+        try {
+            const response = await makeGraphQLRequest(queries.jurisdictionDetails, {
+                id: jurisdictionId
+            });
+
+            const jurisdictionDetails = response.data.stdJurisdiction;
+            console.log('Jurisdiction details fetched:', jurisdictionDetails);
+            return jurisdictionDetails;
+        } catch (error) {
+            console.error('Error fetching jurisdiction details:', {
+                jurisdictionId,
+                error: error.message,
+                fullError: error
+            });
+            throw error;
+        }
+    };
+
+    // Update jurisdiction details
+    const updateJurisdictionDetails = async (jurisdictionId, updatedData) => {
+        console.log('==== Updating Jurisdiction Details ====');
+        console.log('Update data:', { jurisdictionId, updatedData });
+
+        try {
+            const response = await makeGraphQLRequest(mutations.updateJurisdiction, {
+                input: {
+                    id: jurisdictionId,
+                    title: updatedData.title,
+                    acf: {
+                        agencyName: updatedData.acf.agencyName,
+                        addressJurisdiction: updatedData.acf.addressJurisdiction,
+                        phoneJurisdiction: updatedData.acf.phoneJurisdiction,
+                        fipsCode: updatedData.acf.fipsCode,
+                        faxJurisdiction: updatedData.acf.faxJurisdiction
+                    }
+                }
+            });
+
+            console.log('Jurisdiction update response:', response);
+            return response.data.updateStdJurisdiction.stdJurisdiction;
+        } catch (error) {
+            console.error('Error updating jurisdiction:', error);
+            throw error;
+        }
+    };
+
+    // OOJ Details operations
+    const oojOperations = {
+        update: async (jurisdictionId, oojDetails) => {
+            console.log('==== Updating OOJ Details ====');
+            console.log('Update data:', { jurisdictionId, oojDetails });
+
+            try {
+                const response = await makeGraphQLRequest(mutations.updateOojDetails, {
+                    input: {
+                        id: jurisdictionId,
+                        oojDetails: oojDetails.map(detail => ({
+                            oojId: detail.oojId,
+                            oojInfection: detail.oojInfection,
+                            oojActivity: detail.oojActivity,
+                            acceptAndInvestigateLastDateOfExposure: detail.acceptAndInvestigateLastDateOfExposure,
+                            dispositionsReturned: detail.dispositionsReturned,
+                            informationReturned: detail.informationReturned,
+                            acceptAndInvestigate: detail.acceptAndInvestigate,
+                            methodOfTransmitting: detail.methodOfTransmitting,
+                            confidentialEmail: detail.confidentialEmail,
+                            confidentialPhone: detail.confidentialPhone,
+                            pointOfContacts: detail.pointOfContacts,
+                            notes: detail.notes
+                        }))
+                    }
+                });
+
+                console.log('OOJ Details update response:', response);
+                return response.data.updateStdJurisdiction.stdJurisdiction.acf.oojDetails;
+            } catch (error) {
+                console.error('Error updating OOJ details:', error);
+                throw error;
+            }
+        },
+
+        create: async (jurisdictionId, newOojDetail) => {
+            console.log('==== Creating New OOJ Detail ====');
+            
+            try {
+                // Get current OOJ details
+                const currentDetails = await getJurisdictionDetails(jurisdictionId);
+                const oojDetails = currentDetails.acf.oojDetails || [];
+                
+                // Generate new OOJ ID
+                const newOojId = Math.max(...oojDetails.map(d => d.oojId), 0) + 1;
+                
+                // Add new detail to array
+                const updatedDetails = [...oojDetails, { ...newOojDetail, oojId: newOojId }];
+                
+                // Update jurisdiction with new OOJ details
+                return await oojOperations.update(jurisdictionId, updatedDetails);
+            } catch (error) {
+                console.error('Error creating OOJ detail:', error);
+                throw error;
+            }
+        },
+
+        delete: async (jurisdictionId, oojIdToDelete) => {
+            console.log('==== Deleting OOJ Detail ====');
+            
+            try {
+                // Get current OOJ details
+                const currentDetails = await getJurisdictionDetails(jurisdictionId);
+                const oojDetails = currentDetails.acf.oojDetails || [];
+                
+                // Filter out the detail to delete
+                const updatedDetails = oojDetails.filter(detail => detail.oojId !== oojIdToDelete);
+                
+                // Update jurisdiction with filtered OOJ details
+                return await oojOperations.update(jurisdictionId, updatedDetails);
+            } catch (error) {
+                console.error('Error deleting OOJ detail:', error);
+                throw error;
+            }
+        }
+    };
+
+    // Main initialization function (updated)
+    const initializeApplication = async () => {
+        console.log('==== Initializing Application ====');
+        
+        try {
+            // Get current user's jurisdiction
+            const jurisdictionId = await getCurrentUserJurisdiction();
+            if (!jurisdictionId) {
+                throw new Error('No jurisdiction found for current user');
+            }
+
+            // Fetch all needed data in parallel
+            const [referenceData, jurisdictionDetails, users] = await Promise.all([
+                fetchReferenceData(),
+                getJurisdictionDetails(jurisdictionId),
+                getUsersByJurisdiction(jurisdictionId)
+            ]);
+
+            // Store data in global variables (if needed)
+            window.methodsOfTransmissionList = referenceData.methodsOfTransmission;
+            window.oojInfectionList = referenceData.oojInfections;
+            window.oojActivityList = referenceData.oojActivities;
+            window.hivRoleList = referenceData.hivRoles;
+            window.stiRoleList = referenceData.stiRoles;
+            
+            // Initialize grids
+            initializeGrid(users, jurisdictionId);
+            
+            // GraphQL query for jurisdiction details
+            const jurisdictionQuery = `
+                query GetJurisdiction($id: ID!) {
+                    jurisdiction(id: $id) {
+                        id
+                        title {
+                            rendered
+                        }
+                        modified
+                        acf {
+                            agency_name
+                            address_jurisdiction
+                            phone_jurisdiction
+                            fips_code
+                            fax_jurisdiction
+                            ooj_details
+                        }
+                    }
+                }
+            `;
+
+            // GraphQL mutation for updating jurisdiction
+            const updateJurisdictionMutation = `
+                mutation UpdateJurisdiction($id: ID!, $input: JurisdictionInput!) {
+                    updateJurisdiction(id: $id, input: $input) {
+                        id
+                        title {
+                            rendered
+                        }
+                        modified
+                        acf {
+                            agency_name
+                            address_jurisdiction
+                            phone_jurisdiction
+                            fips_code
+                            fax_jurisdiction
+                            ooj_details
+                        }
+                    }
+                }
+            `;
+
+            // Function to make GraphQL requests
+            async function makeGraphQLRequest(query, variables) {
+                try {
+                    const response = await fetch('/graphql', {
+                        method: 'POST',
+                        credentials: 'include',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-WP-Nonce': wpApiSettings.nonce
+                        },
+                        body: JSON.stringify({
+                            query,
+                            variables
+                        })
+                    });
+                    
+                    const result = await response.json();
+                    if (result.errors) {
+                        throw new Error(result.errors[0].message);
+                    }
+                    return result.data;
+                } catch (error) {
+                    console.error('GraphQL request failed:', error);
+                    throw error;
+                }
+            }
+
+            // Initial fetch of jurisdiction details
+            makeGraphQLRequest(jurisdictionQuery, { id: jurisdictionId })
+                .then(response => {
+                    console.log("Jurisdiction read success. Data received:", response);
+
+                    // Create Main Jurisdiction Datasource for the grid
+                    const juris_dataSource = new kendo.data.DataSource({
+                        transport: {
+                            read: async () => {
+                                const result = await makeGraphQLRequest(jurisdictionQuery, { id: jurisdictionId });
+                                return { data: [result.jurisdiction] };
+                            },
+                            update: async (options) => {
+                                if (options.data.models && options.data.models.length > 0) {
+                                    const updatedData = options.data.models[0];
+                                    const variables = {
+                                        id: updatedData.id,
+                                        input: {
+                                            title: updatedData.title.rendered,
+                                            acf: updatedData.acf
+                                        }
+                                    };
+                                    
+                                    try {
+                                        const result = await makeGraphQLRequest(updateJurisdictionMutation, variables);
+                                        options.success(result.updateJurisdiction);
+                                    } catch (error) {
+                                        options.error(error);
+                                    }
+                                }
+                            }
+                        },
+                        batch: true,
+                        pageSize: 20,
+                        schema: {
+                            model: {
+                                id: "id",
+                                fields: {
+                                    id: { editable: false, nullable: true },
+                                    title: {
+                                        defaultValue: { rendered: "" },
+                                        validation: { required: true }
+                                    },
+                                    modified: { type: "string", validation: { required: true } },
+                                    acf: {
+                                        agency_name: { type: "string", validation: { required: true } },
+                                        address_jurisdiction: { type: "string", validation: { required: true } },
+                                        phone_jurisdiction: { type: "string", validation: { required: true } },
+                                        fips_code: { type: "string" },
+                                        fax_jurisdiction: { type: "string" },
+                                        ooj_details: { type: "object", defaultValue: false }
+                                    }
+                                }
+                            }
+                        }
+                    });
+
+                    // Initialize the Kendo Grid for the non-ooj Data
+                    $("#juris_grid").kendoGrid({
+                        toolbar: ["save", "cancel"],
+                        dataSource: juris_dataSource,
+                        pageable: true,
+                        className: "word-wrap-grid",
+                        height: 350,
+                        columns: [
+                            { field: "title.rendered", title: "Jurisdiction Name" },
+                            { field: "acf.fips_code", title: "FIPS Code" },
+                            { field: "acf.agency_name", title: "Agency Name" },
+                            { field: "acf.address_jurisdiction", title: "Agency Address" },
+                            { field: "acf.phone_jurisdiction", title: "Agency Phone (Main)" },
+                            { command: ["edit"], title: "&nbsp;", width: "250px" }
+                        ],
+                        editable: "inline"
+                    });
+
+                    console.log("Grid initialized and data source set.");
+                    initializeOojGrid(response.jurisdiction.acf.ooj_details);
+                })
+                .catch(error => {
+                    console.error("Error fetching jurisdiction details:", error);
+                });
+
+            console.log('Application initialization complete');
+        } catch (error) {
+            console.error('Error initializing application:', error);
+            alert('Error initializing application. Please check console for details.');
+        }
+    };
+
+    // Update document ready handler
+    jQuery(document).ready(() => {
+        console.log('Document ready, initializing application...');
+        initializeApplication();
+    });
+
+    function initializeJurisdictionDatasource(jurisdictionId) {
+        console.log("Initializing grid with jurisdiction ID:", jurisdictionId);
+
+        // Define GraphQL fragments for reusable field selections
+        const jurisdictionFields = `
+            fragment JurisdictionFields on Jurisdiction {
+                id
+                title {
+                    rendered
+                }
+                modified
+                acf {
+                    agency_name
+                    address_jurisdiction
+                    phone_jurisdiction
+                    fips_code
+                    fax_jurisdiction
+                    ooj_details
+                }
+            }
+        `;
+
+        // GraphQL query with fragment
+        const jurisdictionQuery = `
+            ${jurisdictionFields}
+            query GetJurisdiction($id: ID!) {
+                jurisdiction(id: $id) {
+                    ...JurisdictionFields
+                }
+            }
+        `;
+
+        // GraphQL mutation with input type validation
+        const updateJurisdictionMutation = `
+            ${jurisdictionFields}
+            mutation UpdateJurisdiction(
+                $id: ID!
+                $input: JurisdictionInput!
+            ) {
+                updateJurisdiction(
+                    id: $id
+                    input: $input
+                ) {
+                    ...JurisdictionFields
+                }
+            }
+        `;
+
+        // Enhanced GraphQL request function with better error handling
+        async function makeGraphQLRequest(query, variables, operationName = '') {
+            try {
+                const response = await fetch('/graphql', {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-WP-Nonce': wpApiSettings.nonce,
+                        'Accept': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        query,
+                        variables,
+                        operationName
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Network response was not ok: ${response.status} ${response.statusText}`);
+                }
+
+                const result = await response.json();
+
+                if (result.errors) {
+                    const errorMessage = result.errors
+                        .map(error => `${error.message}${error.path ? ` (at ${error.path.join('.')})` : ''}`)
+                        .join('; ');
+                    throw new Error(`GraphQL Errors: ${errorMessage}`);
+                }
+
+                return result.data;
+            } catch (error) {
+                console.error('GraphQL request failed:', {
+                    error,
+                    query,
+                    variables,
+                    operationName
+                });
+                throw error;
+            }
+        }
+
+        // Helper function to show notifications
+        function showNotification(message, type = 'error') {
+            if (window.kendo && kendo.ui.Notification) {
+                const notification = new kendo.ui.Notification({
+                    position: {
+                        top: 30,
+                        right: 30
+                    }
+                });
+                notification[type](message);
+            } else {
+                console[type === 'error' ? 'error' : 'log'](message);
+            }
+        }
+
+        // Initialize the data source with enhanced error handling
+        async function initializeDataSource() {
+            try {
+                const response = await makeGraphQLRequest(
+                    jurisdictionQuery, 
+                    { id: jurisdictionId },
+                    'GetJurisdiction'
+                );
+                
+                console.log("Jurisdiction read success. Data received:", response);
+
+                const juris_dataSource = new kendo.data.DataSource({
+                    transport: {
+                        read: async (options) => {
+                            try {
+                                const result = await makeGraphQLRequest(
+                                    jurisdictionQuery, 
+                                    { id: jurisdictionId },
+                                    'GetJurisdiction'
+                                );
+                                options.success({ data: [result.jurisdiction] });
+                            } catch (error) {
+                                options.error(error);
+                                showNotification('Failed to fetch jurisdiction data');
+                            }
+                        },
+                        update: async (options) => {
+                            if (!options.data?.models?.length) {
+                                options.error(new Error('No data provided for update'));
+                                return;
+                            }
+
+                            try {
+                                const updatedData = options.data.models[0];
+                                const variables = {
+                                    id: updatedData.id,
+                                    input: {
+                                        title: updatedData.title.rendered,
+                                        acf: updatedData.acf
+                                    }
+                                };
+                                
+                                const result = await makeGraphQLRequest(
+                                    updateJurisdictionMutation, 
+                                    variables,
+                                    'UpdateJurisdiction'
+                                );
+                                options.success(result.updateJurisdiction);
+                                showNotification('Jurisdiction updated successfully', 'success');
+                            } catch (error) {
+                                options.error(error);
+                                showNotification('Failed to update jurisdiction');
+                            }
+                        }
+                    },
+                    batch: true,
+                    pageSize: 20,
+                    schema: {
+                        model: {
+                            id: "id",
+                            fields: {
+                                id: { editable: false, nullable: true },
+                                title: {
+                                    defaultValue: { rendered: "" },
+                                    validation: { required: true }
+                                },
+                                modified: { type: "string", validation: { required: true } },
+                                acf: {
+                                    agency_name: { type: "string", validation: { required: true } },
+                                    address_jurisdiction: { type: "string", validation: { required: true } },
+                                    phone_jurisdiction: { type: "string", validation: { required: true } },
+                                    fips_code: { type: "string" },
+                                    fax_jurisdiction: { type: "string" },
+                                    ooj_details: { type: "object", defaultValue: false }
+                                }
+                            }
+                        }
+                    }
+                });
+
+                // Initialize the Kendo Grid
+                $("#juris_grid").kendoGrid({
+                    toolbar: ["save", "cancel"],
+                    dataSource: juris_dataSource,
+                    pageable: true,
+                    className: "word-wrap-grid",
+                    height: 350,
+                    columns: [
+                        { field: "title.rendered", title: "Jurisdiction Name" },
+                        { field: "acf.fips_code", title: "FIPS Code" },
+                        { field: "acf.agency_name", title: "Agency Name" },
+                        { field: "acf.address_jurisdiction", title: "Agency Address" },
+                        { field: "acf.phone_jurisdiction", title: "Agency Phone (Main)" },
+                        { command: ["edit"], title: "&nbsp;", width: "250px" }
+                    ],
+                    editable: "inline"
+                });
+
+                console.log("Grid initialized and data source set.");
+                
+                if (response.jurisdiction?.acf?.ooj_details) {
+                    initializeOojGrid(response.jurisdiction.acf.ooj_details);
+                } else {
+                    console.warn("No OOJ details found in jurisdiction response");
+                }
+            } catch (error) {
+                console.error("Failed to initialize jurisdiction data source:", error);
+                showNotification('Failed to initialize jurisdiction data');
+                throw error;
+            }
+        }
+
+        // Start initialization
+        initializeDataSource().catch(error => {
+            console.error("Critical error during initialization:", error);
+            showNotification('Failed to initialize application');
+        });
+    }
+</script>
