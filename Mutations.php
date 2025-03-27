@@ -91,7 +91,7 @@ add_action('graphql_register_types', function() {
             'hivRole'            => ['type' => ['list_of' => 'Int']], // Multi-select taxonomy => array of term IDs
             'stiRole'            => ['type' => ['list_of' => 'Int']], // Multi-select taxonomy => array of term IDs
             'userPhone'          => ['type' => 'String'],
-            'confidentialFax'    => ['type' => 'String'],
+            'confidentialPhone'  => ['type' => 'String'],
             'userFax'            => ['type' => 'String'],
             'notesStiHiv'        => ['type' => 'String'],
             'userJurisdiction'   => ['type' => 'Int'], // Post ID for std_jurisdiction
@@ -127,8 +127,8 @@ add_action('graphql_register_types', function() {
             if (isset($input['userPhone'])) {
                 update_field('user_phone', $input['userPhone'], 'user_' . $user_id);
             }
-            if (isset($input['confidentialFax'])) {
-                update_field('confidential_fax', $input['confidentialFax'], 'user_' . $user_id);
+            if (isset($input['confidentialPhone'])) {
+                update_field('confidential_phone', $input['confidentialPhone'], 'user_' . $user_id);
             }
             if (isset($input['userFax'])) {
                 update_field('user_fax', $input['userFax'], 'user_' . $user_id);
@@ -147,6 +147,77 @@ add_action('graphql_register_types', function() {
         }
     ]);
 
+    // User Role Management Mutation
+    register_graphql_mutation('updateUserRoles', [
+        'inputFields' => [
+            'userId' => [
+                'type' => 'ID',
+                'description' => __('Global Relay ID of the User to update.', 'your-textdomain'),
+            ],
+            'jurisdictionId' => [
+                'type' => 'Int',
+                'description' => __('The jurisdiction ID', 'your-textdomain'),
+            ],
+            'roles' => [
+                'type' => ['list_of' => 'String'],
+                'description' => __('List of roles', 'your-textdomain'),
+            ],
+            'oojroles' => [
+                'type' => ['list_of' => 'String'],
+                'description' => __('List of OOJ roles', 'your-textdomain'),
+            ],
+            'contacts' => [
+                'type' => ['list_of' => 'Int'],
+                'description' => __('List of contact IDs', 'your-textdomain'),
+            ],
+        ],
+        'outputFields' => [
+            'user' => [
+                'type' => 'User',
+                'resolve' => function($payload, $args, $context, $info) {
+                    if (!empty($payload['user_id'])) {
+                        return get_user_by('ID', $payload['user_id']);
+                    }
+                    return null;
+                }
+            ]
+        ],
+        'mutateAndGetPayload' => function($input, $context, $info) {
+            $user_id = \WPGraphQL\Utils\Utils::get_database_id_from_id($input['userId'], 'user');
+            if (!$user_id) {
+                throw new \GraphQL\Error\UserError('Invalid user ID.');
+            }
+
+            // Update roles if provided
+            if (isset($input['roles']) && is_array($input['roles'])) {
+                // Handle roles update logic here
+                // This depends on how roles are stored in your system
+                update_field('roles', $input['roles'], 'user_' . $user_id);
+            }
+
+            // Update OOJ roles if provided
+            if (isset($input['oojroles']) && is_array($input['oojroles'])) {
+                // Handle OOJ roles update logic
+                update_field('oojroles', $input['oojroles'], 'user_' . $user_id);
+            }
+
+            // Update contacts if provided
+            if (isset($input['contacts']) && is_array($input['contacts'])) {
+                // Handle contacts update logic
+                update_field('contacts', $input['contacts'], 'user_' . $user_id);
+            }
+
+            // Update jurisdiction if provided
+            if (isset($input['jurisdictionId'])) {
+                update_field('user_jurisdiction', $input['jurisdictionId'], 'user_' . $user_id);
+            }
+
+            return [
+                'user_id' => $user_id,
+            ];
+        }
+    ]);
+
     /*********************************************************************************
      * OOJ (OUT OF JURISDICTION) MUTATIONS
      * 
@@ -157,116 +228,321 @@ add_action('graphql_register_types', function() {
      *********************************************************************************/
     
     /**
-     * 1) Define the input type for each row of the OOJ Details repeater
+     * Register the CreateOOJDetail mutation
      */
-    register_graphql_input_type('OOJDetailsInputRow', [
-        'description' => __('Input for each row of the OOJ Details repeater.', 'your-textdomain'),
-        'fields' => [
-            'oojId'                                 => ['type' => 'Int'],
-            'oojInfection'                          => ['type' => 'Int'],                  // Single term ID
-            'oojActivity'                           => ['type' => ['list_of' => 'Int']],  // Multi-select term IDs
-            'lastDateOfExposure'                    => ['type' => 'String'],
-            'dispositionsReturned'                  => ['type' => 'String'],
-            'acceptAndInvestigate'                  => ['type' => 'String'],
-            'methodOfTransmitting'                  => ['type' => ['list_of' => 'Int']],
-            'acceptableForPii'                      => ['type' => ['list_of' => 'Int']],  // Acceptable for PII
-            'notes'                                 => ['type' => 'String'],
-            'pointOfContacts'                       => ['type' => ['list_of' => 'Int']],  // Multiple contacts
-        ],
-    ]);
-
-    /**
-     * 2) Register the custom mutation that updates only the OOJ Details repeater
-     */
-    register_graphql_mutation('updateOOJDetails', [
+    register_graphql_mutation('createOOJDetail', [
         'inputFields' => [
-            // The ID of the Jurisdiction (in Relay ID format)
-            'id' => [
-                'type' => 'ID',
-                'description' => __('Global Relay ID of the Jurisdiction.', 'your-textdomain'),
+            'title' => [
+                'type' => 'String',
+                'description' => __('Title for the OOJ Detail.', 'your-textdomain'),
             ],
-            // Array of repeater rows
-            'oojDetails' => [
-                'type' => ['list_of' => 'OOJDetailsInputRow'],
-                'description' => __('An array of rows to store in the OOJ Details repeater.', 'your-textdomain'),
+            'status' => [
+                'type' => 'PostStatusEnum',
+                'description' => __('Status of the OOJ Detail', 'your-textdomain'),
+            ],
+            'jurisdictionSelection' => [
+                'type' => 'Int',
+                'description' => __('The jurisdiction selection (std_jurisdiction post ID)', 'your-textdomain'),
+            ],
+            'lastDateOfExposure' => [
+                'type' => 'String',
+                'description' => __('Last date of exposure', 'your-textdomain'),
+            ],
+            'dispositionsReturned' => [
+                'type' => 'String',
+                'description' => __('Dispositions returned', 'your-textdomain'),
+            ],
+            'acceptAndInvestigate' => [
+                'type' => 'String',
+                'description' => __('Accept and investigate', 'your-textdomain'),
+            ],
+            'notes' => [
+                'type' => 'String',
+                'description' => __('Notes for this OOJ detail', 'your-textdomain'),
+            ],
+            'pointOfContacts' => [
+                'type' => ['list_of' => 'Int'],
+                'description' => __('Point of contacts user IDs', 'your-textdomain'),
+            ],
+            'oOJInfections' => [
+                'type' => 'Int',
+                'description' => __('OOJ infection term ID', 'your-textdomain'),
+            ],
+            'oOJActivities' => [
+                'type' => ['list_of' => 'Int'],
+                'description' => __('OOJ activity term IDs', 'your-textdomain'),
+            ],
+            'methodsOfTransmitting' => [
+                'type' => ['list_of' => 'Int'],
+                'description' => __('Method of transmitting term IDs', 'your-textdomain'),
+            ],
+            'acceptableForPiis' => [
+                'type' => ['list_of' => 'Int'],
+                'description' => __('Acceptable for PII term IDs', 'your-textdomain'),
             ],
         ],
         'outputFields' => [
-            // Return the updated post
-            'jurisdiction' => [
-                'type' => 'Jurisdiction', // WPGraphQL type for your CPT
+            'oojDetail' => [
+                'type' => 'OOJDetail',
+                'description' => __('The created OOJ Detail', 'your-textdomain'),
                 'resolve' => function($payload, $args, $context, $info) {
-                    if (isset($payload['post_id'])) {
-                        return get_post($payload['post_id']);
+                    if (!empty($payload['id'])) {
+                        return get_post($payload['id']);
                     }
                     return null;
                 }
-            ]
+            ],
         ],
         'mutateAndGetPayload' => function($input, $context, $info) {
-            // 1. Convert the Relay ID to a raw WordPress post ID
-            $post_id = \WPGraphQL\Utils\Utils::get_database_id_from_id($input['id'], 'jurisdiction');
-            if (empty($post_id) || 'std_jurisdiction' !== get_post_type($post_id)) {
-                throw new \GraphQL\Error\UserError('Invalid jurisdiction ID.');
+            // Create the OOJ Detail post
+            $post_args = [
+                'post_type' => 'ooj-detail',
+                'post_title' => !empty($input['title']) ? $input['title'] : 'OOJ Detail',
+                'post_status' => !empty($input['status']) ? $input['status'] : 'publish',
+            ];
+            
+            $post_id = wp_insert_post($post_args);
+            
+            if (is_wp_error($post_id)) {
+                throw new \GraphQL\Error\UserError($post_id->get_error_message());
             }
-
-            // 2. Build out the data array for the repeater if provided
-            if (isset($input['oojDetails']) && is_array($input['oojDetails'])) {
-                $repeater_values = [];
-
-                foreach ($input['oojDetails'] as $detail) {
-                    $row_data = [];
-
-                    if (isset($detail['oojId'])) {
-                        $row_data['ooj_id'] = $detail['oojId'];
-                    }
-
-                    if (isset($detail['oojInfection'])) {
-                        $row_data['ooj_infection'] = $detail['oojInfection']; // single term ID
-                    }
-
-                    if (isset($detail['oojActivity']) && is_array($detail['oojActivity'])) {
-                        $row_data['ooj_activity'] = $detail['oojActivity']; // array of term IDs
-                    }
-
-                    if (isset($detail['lastDateOfExposure'])) {
-                        $row_data['last_date_of_exposure'] = $detail['lastDateOfExposure'];
-                    }
-
-                    if (isset($detail['dispositionsReturned'])) {
-                        $row_data['dispositions_returned'] = $detail['dispositionsReturned'];
-                    }
-
-                    if (isset($detail['acceptAndInvestigate'])) {
-                        $row_data['accept_and_investigate'] = $detail['acceptAndInvestigate'];
-                    }
-
-                    if (isset($detail['methodOfTransmitting']) && is_array($detail['methodOfTransmitting'])) {
-                        $row_data['method_of_transmitting'] = $detail['methodOfTransmitting'];
-                    }
-
-                    if (isset($detail['acceptableForPii']) && is_array($detail['acceptableForPii'])) {
-                        $row_data['acceptable_for_pii'] = $detail['acceptableForPii'];
-                    }
-
-                    if (isset($detail['notes'])) {
-                        $row_data['notes'] = $detail['notes'];
-                    }
-
-                    if (isset($detail['pointOfContacts']) && is_array($detail['pointOfContacts'])) {
-                        // For multi-select user field
-                        $row_data['point_of_contacts'] = $detail['pointOfContacts'];
-                    }
-
-                    $repeater_values[] = $row_data;
-                }
-
-                // Update the entire repeater in one go
-                update_field('ooj_details', $repeater_values, $post_id);
+            
+            // Set taxonomies and ACF fields
+            if (!empty($input['oOJInfections'])) {
+                wp_set_object_terms($post_id, [$input['oOJInfections']], 'acf-ooj-infection');
             }
-
+            
+            if (!empty($input['oOJActivities'])) {
+                wp_set_object_terms($post_id, $input['oOJActivities'], 'acf-ooj-activity');
+            }
+            
+            if (!empty($input['methodsOfTransmitting'])) {
+                wp_set_object_terms($post_id, $input['methodsOfTransmitting'], 'iccr_method-of-transmitting');
+            }
+            
+            if (!empty($input['acceptableForPiis'])) {
+                wp_set_object_terms($post_id, $input['acceptableForPiis'], 'acceptable-for-pii');
+            }
+            
+            // Update ACF fields
+            if (isset($input['jurisdictionSelection'])) {
+                update_field('jurisdiction_selection', $input['jurisdictionSelection'], $post_id);
+            }
+            
+            if (isset($input['lastDateOfExposure'])) {
+                update_field('last_date_of_exposure', $input['lastDateOfExposure'], $post_id);
+            }
+            
+            if (isset($input['dispositionsReturned'])) {
+                update_field('dispositions_returned', $input['dispositionsReturned'], $post_id);
+            }
+            
+            if (isset($input['acceptAndInvestigate'])) {
+                update_field('accept_and_investigate', $input['acceptAndInvestigate'], $post_id);
+            }
+            
+            if (isset($input['notes'])) {
+                update_field('notes', $input['notes'], $post_id);
+            }
+            
+            if (isset($input['pointOfContacts'])) {
+                update_field('point_of_contacts', $input['pointOfContacts'], $post_id);
+            }
+            
             return [
-                'post_id' => $post_id,
+                'id' => $post_id,
+            ];
+        }
+    ]);
+    
+    /**
+     * Register the UpdateOOJDetail mutation
+     */
+    register_graphql_mutation('updateOOJDetail', [
+        'inputFields' => [
+            'id' => [
+                'type' => ['non_null' => 'ID'],
+                'description' => __('ID of the OOJ Detail to update', 'your-textdomain'),
+            ],
+            'title' => [
+                'type' => 'String',
+                'description' => __('Title for the OOJ Detail.', 'your-textdomain'),
+            ],
+            'status' => [
+                'type' => 'PostStatusEnum',
+                'description' => __('Status of the OOJ Detail', 'your-textdomain'),
+            ],
+            'jurisdictionSelection' => [
+                'type' => 'Int',
+                'description' => __('The jurisdiction selection (std_jurisdiction post ID)', 'your-textdomain'),
+            ],
+            'lastDateOfExposure' => [
+                'type' => 'String',
+                'description' => __('Last date of exposure', 'your-textdomain'),
+            ],
+            'dispositionsReturned' => [
+                'type' => 'String',
+                'description' => __('Dispositions returned', 'your-textdomain'),
+            ],
+            'acceptAndInvestigate' => [
+                'type' => 'String',
+                'description' => __('Accept and investigate', 'your-textdomain'),
+            ],
+            'notes' => [
+                'type' => 'String',
+                'description' => __('Notes for this OOJ detail', 'your-textdomain'),
+            ],
+            'pointOfContacts' => [
+                'type' => ['list_of' => 'Int'],
+                'description' => __('Point of contacts user IDs', 'your-textdomain'),
+            ],
+            'oOJInfections' => [
+                'type' => 'Int',
+                'description' => __('OOJ infection term ID', 'your-textdomain'),
+            ],
+            'oOJActivities' => [
+                'type' => ['list_of' => 'Int'],
+                'description' => __('OOJ activity term IDs', 'your-textdomain'),
+            ],
+            'methodsOfTransmitting' => [
+                'type' => ['list_of' => 'Int'],
+                'description' => __('Method of transmitting term IDs', 'your-textdomain'),
+            ],
+            'acceptableForPiis' => [
+                'type' => ['list_of' => 'Int'],
+                'description' => __('Acceptable for PII term IDs', 'your-textdomain'),
+            ],
+        ],
+        'outputFields' => [
+            'oojDetail' => [
+                'type' => 'OOJDetail',
+                'description' => __('The updated OOJ Detail', 'your-textdomain'),
+                'resolve' => function($payload, $args, $context, $info) {
+                    if (!empty($payload['id'])) {
+                        return get_post($payload['id']);
+                    }
+                    return null;
+                }
+            ],
+        ],
+        'mutateAndGetPayload' => function($input, $context, $info) {
+            // Get the post ID from the global ID
+            $post_id = \WPGraphQL\Utils\Utils::get_database_id_from_id($input['id'], 'oOJDetail');
+            
+            if (!$post_id || get_post_type($post_id) !== 'ooj-detail') {
+                throw new \GraphQL\Error\UserError('Invalid OOJ Detail ID.');
+            }
+            
+            // Update post title/status if provided
+            $post_args = [
+                'ID' => $post_id,
+            ];
+            
+            if (!empty($input['title'])) {
+                $post_args['post_title'] = $input['title'];
+            }
+            
+            if (!empty($input['status'])) {
+                $post_args['post_status'] = $input['status'];
+            }
+            
+            if (count($post_args) > 1) {
+                wp_update_post($post_args);
+            }
+            
+            // Update taxonomies
+            if (isset($input['oOJInfections'])) {
+                wp_set_object_terms($post_id, [$input['oOJInfections']], 'acf-ooj-infection');
+            }
+            
+            if (isset($input['oOJActivities'])) {
+                wp_set_object_terms($post_id, $input['oOJActivities'], 'acf-ooj-activity');
+            }
+            
+            if (isset($input['methodsOfTransmitting'])) {
+                wp_set_object_terms($post_id, $input['methodsOfTransmitting'], 'iccr_method-of-transmitting');
+            }
+            
+            if (isset($input['acceptableForPiis'])) {
+                wp_set_object_terms($post_id, $input['acceptableForPiis'], 'acceptable-for-pii');
+            }
+            
+            // Update ACF fields
+            if (isset($input['jurisdictionSelection'])) {
+                update_field('jurisdiction_selection', $input['jurisdictionSelection'], $post_id);
+            }
+            
+            if (isset($input['lastDateOfExposure'])) {
+                update_field('last_date_of_exposure', $input['lastDateOfExposure'], $post_id);
+            }
+            
+            if (isset($input['dispositionsReturned'])) {
+                update_field('dispositions_returned', $input['dispositionsReturned'], $post_id);
+            }
+            
+            if (isset($input['acceptAndInvestigate'])) {
+                update_field('accept_and_investigate', $input['acceptAndInvestigate'], $post_id);
+            }
+            
+            if (isset($input['notes'])) {
+                update_field('notes', $input['notes'], $post_id);
+            }
+            
+            if (isset($input['pointOfContacts'])) {
+                update_field('point_of_contacts', $input['pointOfContacts'], $post_id);
+            }
+            
+            return [
+                'id' => $post_id,
+            ];
+        }
+    ]);
+
+    /**
+     * Register the DeleteOOJDetail mutation
+     */
+    register_graphql_mutation('deleteOOJDetail', [
+        'inputFields' => [
+            'id' => [
+                'type' => ['non_null' => 'ID'],
+                'description' => __('ID of the OOJ Detail to delete', 'your-textdomain'),
+            ],
+            'forceDelete' => [
+                'type' => 'Boolean',
+                'description' => __('Whether to permanently delete or move to trash', 'your-textdomain'),
+            ],
+        ],
+        'outputFields' => [
+            'deletedId' => [
+                'type' => 'ID',
+                'description' => __('The ID of the deleted OOJ Detail', 'your-textdomain'),
+                'resolve' => function($payload) {
+                    return $payload['deletedId'] ?? null;
+                }
+            ],
+            'success' => [
+                'type' => 'Boolean',
+                'description' => __('Whether the deletion was successful', 'your-textdomain'),
+                'resolve' => function($payload) {
+                    return $payload['success'] ?? false;
+                }
+            ],
+        ],
+        'mutateAndGetPayload' => function($input, $context, $info) {
+            // Get the post ID from the global ID
+            $post_id = \WPGraphQL\Utils\Utils::get_database_id_from_id($input['id'], 'oOJDetail');
+            
+            if (!$post_id || get_post_type($post_id) !== 'ooj-detail') {
+                throw new \GraphQL\Error\UserError('Invalid OOJ Detail ID.');
+            }
+            
+            // Force delete or trash based on input
+            $force_delete = isset($input['forceDelete']) ? (bool) $input['forceDelete'] : false;
+            $result = wp_delete_post($post_id, $force_delete);
+            
+            return [
+                'deletedId' => $input['id'],
+                'success' => (bool) $result,
             ];
         }
     ]);
