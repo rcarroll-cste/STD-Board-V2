@@ -80,73 +80,156 @@ add_action('graphql_register_types', function() {
      * - Contact information (phone, fax)
      * - Notes and jurisdiction assignment
      *********************************************************************************/
-    
-    register_graphql_mutation('updateUserStdContact', [
-        'inputFields' => [
-            'userId' => [
-                'type' => 'ID',
-                'description' => __('Global Relay ID of the User to update.', 'your-textdomain'),
-            ],
-            // The ACF fields:
-            'hivRole'            => ['type' => ['list_of' => 'Int']], // Multi-select taxonomy => array of term IDs
-            'stiRole'            => ['type' => ['list_of' => 'Int']], // Multi-select taxonomy => array of term IDs
-            'userPhone'          => ['type' => 'String'],
-            'confidentialPhone'  => ['type' => 'String'],
-            'userFax'            => ['type' => 'String'],
-            'notesStiHiv'        => ['type' => 'String'],
-            'userJurisdiction'   => ['type' => 'Int'], // Post ID for std_jurisdiction
+register_graphql_mutation('updateUserStdContact', [
+    'inputFields' => [
+        'userId' => [
+            'type' => 'ID',
+            'description' => __('Global Relay ID of the User to update.', 'your-textdomain'),
         ],
-        'outputFields' => [
-            'user' => [
-                'type' => 'User',
-                'resolve' => function($payload, $args, $context, $info) {
-                    if (!empty($payload['user_id'])) {
-                        return get_user_by('ID', $payload['user_id']);
+        'firstName'          => ['type' => 'String', 'description' => __('User\'s first name', 'your-textdomain')],
+        'lastName'           => ['type' => 'String', 'description' => __('User\'s last name', 'your-textdomain')],
+        'email'              => ['type' => 'String', 'description' => __('User\'s email address', 'your-textdomain')],
+        'hivRole'            => ['type' => ['list_of' => 'Int']],
+        'stiRole'            => ['type' => ['list_of' => 'Int']],
+        'userPhone'          => ['type' => 'String'],
+        'confidentialPhone'  => ['type' => 'String'],
+        'userFax'            => ['type' => 'String'],
+        'notesStiHiv'        => ['type' => 'String'],
+        'userJurisdiction'   => ['type' => 'Int'],
+    ],
+    'outputFields' => [
+        'user' => [
+            'type' => 'User',
+            'resolve' => function($payload, $args, $context, $info) {
+                // Simplified user resolution
+                if (!empty($payload['user_id'])) {
+                    $user_obj = get_user_by('ID', $payload['user_id']);
+                    if ($user_obj) {
+                        return new \WPGraphQL\Model\User($user_obj);
                     }
-                    return null;
                 }
-            ]
+                return null;
+            }
         ],
-        'mutateAndGetPayload' => function($input, $context, $info) {
+        'success' => [
+            'type' => 'Boolean',
+            'description' => __('Whether the update was successful', 'your-textdomain'),
+            'resolve' => function($payload) {
+                return isset($payload['success']) ? (bool) $payload['success'] : false;
+            }
+        ],
+        'message' => [
+            'type' => 'String',
+            'description' => __('Status message', 'your-textdomain'),
+            'resolve' => function($payload) {
+                return isset($payload['message']) ? $payload['message'] : '';
+            }
+        ]
+    ],
+    'mutateAndGetPayload' => function($input, $context, $info) {
+        error_log('User update mutation input: ' . print_r($input, true));
+        
+        try {
+            // Get the numeric user ID
             $user_id = \WPGraphQL\Utils\Utils::get_database_id_from_id($input['userId'], 'user');
+            
             if (!$user_id) {
                 throw new \GraphQL\Error\UserError('Invalid user ID.');
             }
-
-            // 1. Update taxonomies (HIV Role, STI Role) if needed
-            if (isset($input['hivRole'])) {
-                // Store the array of term IDs directly in ACF
-                update_field('hiv_role', $input['hivRole'], 'user_' . $user_id);
+            
+            // Verify the user exists
+            $user = get_user_by('ID', $user_id);
+            if (!$user) {
+                throw new \GraphQL\Error\UserError('User not found.');
             }
-
-            if (isset($input['stiRole'])) {
-                update_field('sti_role', $input['stiRole'], 'user_' . $user_id);
-            }
-
-            // 2. Update other ACF fields
-            if (isset($input['userPhone'])) {
-                update_field('user_phone', $input['userPhone'], 'user_' . $user_id);
-            }
-            if (isset($input['confidentialPhone'])) {
-                update_field('confidential_phone', $input['confidentialPhone'], 'user_' . $user_id);
-            }
-            if (isset($input['userFax'])) {
-                update_field('user_fax', $input['userFax'], 'user_' . $user_id);
-            }
-            if (isset($input['notesStiHiv'])) {
-                update_field('notes_sti_hiv', $input['notesStiHiv'], 'user_' . $user_id);
-            }
-            if (isset($input['userJurisdiction'])) {
-                update_field('user_jurisdiction', $input['userJurisdiction'], 'user_' . $user_id);
-            }
-
-            // 3. Return the updated user
-            return [
-                'user_id' => $user_id,
+            
+            $all_updates = [];
+            
+            // Use a consistent field update approach for all fields
+            $field_mapping = [
+                'notesStiHiv' => 'notes_sti_hiv',
+                'hivRole' => 'hiv_role',
+                'stiRole' => 'sti_role',
+                'userPhone' => 'user_phone',
+                'confidentialPhone' => 'confidential_phone',
+                'userFax' => 'user_fax',
+                'userJurisdiction' => 'user_jurisdiction'
             ];
+            
+            // Update core WordPress user data (first name, last name, email)
+            $wp_user_data = [];
+            
+            if (isset($input['firstName'])) {
+                $wp_user_data['first_name'] = sanitize_text_field($input['firstName']);
+                error_log("Adding first_name to WordPress update: " . $wp_user_data['first_name']);
+            }
+            
+            if (isset($input['lastName'])) {
+                $wp_user_data['last_name'] = sanitize_text_field($input['lastName']);
+                error_log("Adding last_name to WordPress update: " . $wp_user_data['last_name']);
+            }
+            
+            if (isset($input['email'])) {
+                $wp_user_data['user_email'] = sanitize_email($input['email']);
+                error_log("Adding user_email to WordPress update: " . $wp_user_data['user_email']);
+            }
+            
+            // Only do core update if we have fields to update
+            if (!empty($wp_user_data)) {
+                $wp_user_data['ID'] = $user_id; // Required for wp_update_user
+                $wp_result = wp_update_user($wp_user_data);
+                
+                if (is_wp_error($wp_result)) {
+                    error_log("WordPress core update failed: " . $wp_result->get_error_message());
+                    $all_updates['wp_core'] = false;
+                } else {
+                    error_log("WordPress core update successful for user ID: " . $user_id);
+                    $all_updates['wp_core'] = true;
+                }
+            }
+            
+            // Process ACF fields with a single, consistent approach
+            foreach ($field_mapping as $input_field => $acf_field) {
+                if (isset($input[$input_field])) {
+                    $value = $input[$input_field];
+                    
+                    // Ensure integers for role arrays
+                    if ($input_field === 'hivRole' || $input_field === 'stiRole') {
+                        $value = array_map('intval', (array)$value);
+                    }
+                    
+                    // Ensure integer for jurisdiction
+                    if ($input_field === 'userJurisdiction') {
+                        $value = intval($value);
+                    }
+                    
+                    // Log the update attempt
+                    error_log("Updating {$acf_field} with value: " . (is_array($value) ? json_encode($value) : $value));
+                    
+                    // Single update method using standard ACF update
+                    $result = update_field($acf_field, $value, 'user_' . $user_id);
+                    error_log("Update {$acf_field} result: " . ($result ? 'success' : 'failed'));
+                    
+                    $all_updates[$acf_field] = $result;
+                }
+            }
+            
+            // Success if any field was updated successfully
+            $success = in_array(true, $all_updates);
+            $message = $success ? 'Update successful' : 'No fields were updated successfully';
+            
+            error_log('Final update result: ' . $message);
+            return [
+                'user_id' => $user_id, 
+                'success' => $success,
+                'message' => $message
+            ];
+        } catch (\Exception $e) {
+            error_log('Error in user update mutation: ' . $e->getMessage());
+            throw $e; // Re-throw to be handled by GraphQL
         }
-    ]);
-
+    }
+]);
     // User Role Management Mutation
     register_graphql_mutation('updateUserRoles', [
         'inputFields' => [

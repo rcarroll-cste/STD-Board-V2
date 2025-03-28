@@ -23,234 +23,371 @@
     `;
     
     var UPDATE_JURISDICTION_QUERY = `
-mutation UpdateJurisdiction($input: UpdateJurisdictionInput!) {
-  updateJurisdiction(input: $input) {
-    jurisdiction {
-      id
-      databaseId
-      title
-      jurisdictionDetails {
-        addressJurisdiction
-        agencyName
-        faxJurisdiction
-        fipsCode
-        phoneJurisdiction
+    mutation UpdateJurisdiction($input: UpdateJurisdictionInput!) {
+      updateJurisdiction(input: $input) {
+        jurisdiction {
+          id
+          databaseId
+          title
+          jurisdictionDetails {
+            addressJurisdiction
+            agencyName
+            faxJurisdiction
+            fipsCode
+            phoneJurisdiction
+          }
+        }
       }
     }
-  }
-}
+    `;
+
+    var CREATE_JURISDICTION_QUERY = `
+    mutation CreateJurisdiction($input: CreateJurisdictionInput!) {
+      createJurisdiction(input: $input) {
+        jurisdiction {
+          id
+          databaseId
+          title
+          jurisdictionDetails {
+            addressJurisdiction
+            agencyName
+            faxJurisdiction
+            fipsCode
+            phoneJurisdiction
+          }
+        }
+      }
+    }
+    `;
+
+    var DELETE_JURISDICTION_QUERY = `
+    mutation DeleteJurisdiction($input: DeleteJurisdictionInput!) {
+      deleteJurisdiction(input: $input) {
+        jurisdiction {
+          id
+          databaseId
+        }
+        deleted
+      }
+    }
     `;
     
     var READ_USERS_QUERY = `
-query GetUsersByJurisdiction($jurisdictionId: Int!) {
-  users(where: {jurisdictionDatabaseId: $jurisdictionId}) {
-    nodes {
-      firstName
-      lastName
-      stdContactDetails {
-        confidentialPhone
-        userPhone
-        userFax
-        notesStiHiv
-        stiRole {
-          nodes {
-            name
+    query GetUsersByJurisdiction($jurisdictionId: Int!) {
+      users(where: {jurisdictionDatabaseId: $jurisdictionId}) {
+        nodes {
+          firstName
+          lastName
+          email
+          stdContactDetails {
+            confidentialPhone
+            userPhone
+            userFax
+            notesStiHiv
+            stiRole {
+              nodes {
+                name
+                id
+                databaseId
+              }
+            }
+            hivRole {
+              nodes {
+                name
+                id
+                databaseId
+              }
+            }
           }
+          id
+          databaseId
         }
-        hivRole {
-          nodes {
-            name
+      }
+    }
+    `;
+
+    var UPDATE_USER_QUERY = `
+    mutation UpdateUserStdContact($input: UpdateUserStdContactInput!) {
+      updateUserStdContact(input: $input) {
+        user {
+          id
+          databaseId
+          firstName
+          lastName
+          email
+          stdContactDetails {
+            confidentialPhone
+            userPhone
+            userFax
+            notesStiHiv
+            hivRole {
+              nodes {
+                id
+                databaseId
+                name
+              }
+            }
+            stiRole {
+              nodes {
+                id
+                databaseId
+                name
+              }
+            }
           }
         }
       }
     }
-  }
-}
-`;
+    `;
 
-var UPDATE_USER_QUERY = `
-mutation UpdateUserStdContact($input: UpdateUserStdContactInput!) {
-  updateUserStdContact(input: $input) {
-    user {
-      id
-      databaseId
-      firstName
-      lastName
-      stdContactDetails {
-        userPhone
-        userFax
-        notesStiHiv
-        hivRole {
-          nodes {
-            id
-            name
-          }
-        }
-        stiRole {
-          nodes {
-            id
-            name
+    var CREATE_USER_QUERY = `
+    mutation CreateUser($input: CreateUserInput!) {
+      createUser(input: $input) {
+        user {
+          id
+          databaseId
+          firstName
+          lastName
+          email
+          stdContactDetails {
+            confidentialPhone
+            userPhone
+            userFax
+            notesStiHiv
+            hivRole {
+              nodes {
+                id
+                databaseId
+                name
+              }
+            }
+            stiRole {
+              nodes {
+                id
+                databaseId
+                name
+              }
+            }
           }
         }
       }
     }
-  }
-}
-`;
+    `;
 
-    // Get current user's jurisdiction
-    async function getCurrentUserJurisdiction() {
-        const query = `
-            query CurrentUserJurisdiction {
-                viewer {
-                    stdContactDetails {
-                        userJurisdiction {
-                            nodes {
-                                databaseId
-                                id
-                                ... on Jurisdiction {
-                                    id
-                                    title
-                                    jurisdictionDetails {
-                                        addressJurisdiction
-                                        agencyName
-                                        faxJurisdiction
-                                        fipsCode
-                                        phoneJurisdiction
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        `;
-    
-        try {
-            console.log('Executing getCurrentUserJurisdiction...');
-            const response = await $.ajax({
-                url: 'https://hivstiooj.cste.org/graphql',
-                method: 'POST',
-                data: JSON.stringify({
-                    query: query
-                }),
-                contentType: 'application/json',
-                dataType: 'json',
-                xhrFields: {
-                    withCredentials: true
-                },
-                headers: {
-                    'Accept': 'application/json'
-                }
-            });
-            
-            console.log('Full GraphQL response for user jurisdiction:', response);
-            
-            if (response.errors) {
-                console.error('GraphQL errors in getCurrentUserJurisdiction:', response.errors);
-                throw new Error(response.errors[0]?.message || 'Unknown GraphQL error');
-            }
-            
-            const jurisdictionNode = response?.data?.viewer?.stdContactDetails
-                ?.userJurisdiction?.nodes?.[0];
-                
-            console.log('Jurisdiction node from response:', jurisdictionNode);
-                
-            if (!jurisdictionNode) {
-                throw new Error('No jurisdiction found for current user');
-            }
-            
-            // Return the full jurisdiction node rather than just the ID
-            return jurisdictionNode;
-        } catch (error) {
-            console.error('Error getting current user jurisdiction:', error);
-            console.error('Error response text:', error.responseText || 'No response text available');
-            return null;
+    var DELETE_USER_QUERY = `
+    mutation DeleteUser($input: DeleteUserInput!) {
+      deleteUser(input: $input) {
+        user {
+          id
+          databaseId
         }
+        deleted
+      }
     }
+    `;
+
+    var GET_HIV_ROLES_QUERY = `
+    query GetHivRoles {
+      hIVRoles {
+        nodes {
+          id
+          databaseId
+          name
+        }
+      }
+    }
+    `;
+
+    var GET_STI_ROLES_QUERY = `
+    query GetStiRoles {
+      sTIRoles {
+        nodes {
+          name
+          databaseId
+          id
+        }
+      }
+    }
+    `;
+
+    var GET_CURRENT_USER_JURISDICTION_QUERY = `
+    query CurrentUserJurisdiction {
+      viewer {
+        stdContactDetails {
+          userJurisdiction {
+            nodes {
+              databaseId
+              id
+              ... on Jurisdiction {
+                id
+                title
+                jurisdictionDetails {
+                  addressJurisdiction
+                  agencyName
+                  faxJurisdiction
+                  fipsCode
+                  phoneJurisdiction
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    `;
+
+    // Global variables for storing role data
+    var hivRolesData = [];
+    var stiRolesData = [];
+    var currentJurisdictionId = null;
     
-    // Helper function to show notifications
+    // Function to generate secure passwords with required complexity
+    function generateSecurePassword() {
+        var upperChars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+        var lowerChars = 'abcdefghijklmnopqrstuvwxyz';
+        var numbers = '0123456789';
+        var specialChars = '!@#$%^&*()_+[]{}|;:,.<>?';
+        
+        var allChars = upperChars + lowerChars + numbers + specialChars;
+        var password = '';
+        
+        // Ensure at least one of each required character type
+        password += upperChars.charAt(Math.floor(Math.random() * upperChars.length));
+        password += lowerChars.charAt(Math.floor(Math.random() * lowerChars.length));
+        password += numbers.charAt(Math.floor(Math.random() * numbers.length));
+        password += specialChars.charAt(Math.floor(Math.random() * specialChars.length));
+        
+        // Fill the rest with random characters
+        for (var i = 0; i < 4; i++) {
+            password += allChars.charAt(Math.floor(Math.random() * allChars.length));
+        }
+        
+        // Shuffle the password characters
+        return password.split('').sort(function() { 
+            return 0.5 - Math.random(); 
+        }).join('');
+    }
+
+    // Function to show notifications
     function showNotification(message, type = 'error') {
-        console.log(`Showing notification: ${message} (type: ${type})`);
         if (window.kendo && kendo.ui.Notification) {
             const notification = new kendo.ui.Notification({
-                position: {
-                    top: 30,
-                    right: 30
-                }
+                position: { top: 30, right: 30 }
             });
             notification[type](message);
         } else {
             console[type === 'error' ? 'error' : 'log'](message);
         }
     }
-    
-    $(document).ready(function() {
-    console.log('Document ready, initializing application...');
-    
 
-    // Fetch the current user's jurisdiction
-    getCurrentUserJurisdiction()
-        .then(jurisdictionData => {
-            console.log('Retrieved jurisdiction data:', jurisdictionData);
-            if (!jurisdictionData) {
-                throw new Error("Could not determine user's jurisdiction");
+    $(document).ready(function() {
+        // First fetch current user's jurisdiction
+        $.ajax({
+            url: 'https://hivstiooj.cste.org/graphql',
+            method: 'POST',
+            data: JSON.stringify({ query: GET_CURRENT_USER_JURISDICTION_QUERY }),
+            contentType: 'application/json',
+            dataType: 'json',
+            xhrFields: { withCredentials: true },
+            headers: { 'Accept': 'application/json' }
+        }).then(function(response) {
+            if (response.errors) {
+                console.error('GraphQL errors:', response.errors);
+                showNotification('Error: ' + response.errors[0].message);
+                return;
             }
-            
-            const jurisdictionId = jurisdictionData.databaseId;
-            console.log('Using jurisdictionId:', jurisdictionId);
-            
-            // JURISDICTION GRID DATASOURCE AND INITIALIZATION
+
+            const jurisdictionNode = response?.data?.viewer?.stdContactDetails?.userJurisdiction?.nodes?.[0];
+            if (!jurisdictionNode) {
+                showNotification("Could not determine user's jurisdiction");
+                return;
+            }
+
+            currentJurisdictionId = jurisdictionNode.databaseId;
+            console.log('Using jurisdictionId:', currentJurisdictionId);
+
+            // Then fetch HIV and STI roles
+            Promise.all([
+                $.ajax({
+                    url: 'https://hivstiooj.cste.org/graphql',
+                    method: 'POST',
+                    data: JSON.stringify({ query: GET_HIV_ROLES_QUERY }),
+                    contentType: 'application/json',
+                    dataType: 'json',
+                    xhrFields: { withCredentials: true }
+                }),
+                $.ajax({
+                    url: 'https://hivstiooj.cste.org/graphql',
+                    method: 'POST',
+                    data: JSON.stringify({ query: GET_STI_ROLES_QUERY }),
+                    contentType: 'application/json',
+                    dataType: 'json',
+                    xhrFields: { withCredentials: true }
+                })
+            ]).then(function(results) {
+                // Store roles data
+                if (results[0].data && results[0].data.hIVRoles) {
+                    hivRolesData = results[0].data.hIVRoles.nodes;
+                }
+                if (results[1].data && results[1].data.sTIRoles) {
+                    stiRolesData = results[1].data.sTIRoles.nodes;
+                }
+
+                // Initialize grids
+                initJurisdictionGrid();
+                initUsersGrid();
+            }).catch(function(error) {
+                console.error("Error fetching roles:", error);
+                showNotification("Failed to load roles data");
+            });
+        }).catch(function(error) {
+            console.error("Error getting jurisdiction:", error);
+            showNotification("Failed to determine user's jurisdiction");
+        });
+
+        function initJurisdictionGrid() {
+            // JURISDICTION GRID DATASOURCE
             var jurisdictionDataSource = new kendo.data.DataSource({
                 transport: {
+                    create: {
+                        contentType: "application/json",
+                        url: "https://hivstiooj.cste.org/graphql",
+                        type: "POST",
+                        data: function(model) {
+                            return {
+                                query: CREATE_JURISDICTION_QUERY,
+                                variables: {
+                                    "input": {
+                                        "title": model.title.rendered,
+                                        "status": "publish",
+                                        "agencyName": model.jurisdictionDetails.agencyName,
+                                        "addressJurisdiction": model.jurisdictionDetails.addressJurisdiction,
+                                        "phoneJurisdiction": model.jurisdictionDetails.phoneJurisdiction,
+                                        "fipsCode": model.jurisdictionDetails.fipsCode,
+                                        "faxJurisdiction": model.jurisdictionDetails.faxJurisdiction
+                                    }
+                                }
+                            };
+                        }
+                    },
                     read: {
                         contentType: "application/json",
                         url: "https://hivstiooj.cste.org/graphql",
                         type: "POST",
                         data: function() {
-                            console.log('READ operation with jurisdictionId:', jurisdictionId);
-                            const payload = { 
+                            return {
                                 query: READ_JURISDICTION_QUERY,
-                                variables: { "databaseId": jurisdictionId }
+                                variables: { "databaseId": currentJurisdictionId }
                             };
-                            console.log('READ payload:', JSON.stringify(payload));
-                            return payload;
-                        },
-                        success: function(response) {
-                            console.log('GraphQL READ response received:', response);
-                            if (response.data) {
-                                console.log('Data from server:', JSON.stringify(response.data, null, 2));
-                                // Check if we have the expected data structure
-                                if (response.data.jurisdictions && 
-                                    response.data.jurisdictions.edges && 
-                                    response.data.jurisdictions.edges.length > 0) {
-                                    console.log('Found jurisdiction edges:', response.data.jurisdictions.edges.length);
-                                } else {
-                                    console.warn('Expected data structure not found in response');
-                                }
-                            } else {
-                                console.warn('No data in response');
-                            }
-                        },
-                        error: function(e) {
-                            console.error("Error in read operation:", e);
-                            console.error("Error details:", e.xhr ? e.xhr.responseText : e);
-                            showNotification("Failed to retrieve jurisdiction data. Please try again.");
-                        },
-                        dataType: "json"
+                        }
                     },
                     update: {
                         contentType: "application/json",
                         url: "https://hivstiooj.cste.org/graphql",
                         type: "POST",
                         data: function(model) {
-                            console.log('UPDATE operation data payload:', model);
-                            
-                            // Convert the database ID to a global ID format
-                            const globalId = btoa(`post:${jurisdictionId}`);
-                            console.log('Converting database ID to global ID:', jurisdictionId, '->', globalId);
-                            
-                            const payload = {
+                            const globalId = btoa(`post:${model.databaseId}`);
+                            return {
                                 query: UPDATE_JURISDICTION_QUERY,
                                 variables: {
                                     "input": {
@@ -264,26 +401,25 @@ mutation UpdateUserStdContact($input: UpdateUserStdContactInput!) {
                                     }
                                 }
                             };
-                            console.log('UPDATE payload:', JSON.stringify(payload));
-                            return payload;
-                        },
-                        success: function(response) {
-                            console.log('GraphQL UPDATE response received:', response);
-                            if (response.data && response.data.updateJurisdiction) {
-                                console.log('Update successful:', JSON.stringify(response.data.updateJurisdiction, null, 2));
-                                showNotification("Jurisdiction updated successfully.", "success");
-                            } else {
-                                console.warn('Unexpected response format for update');
-                            }
-                        },
-                        error: function(e) {
-                            console.error("Error in update operation:", e);
-                            console.error("Error details:", e.xhr ? e.xhr.responseText : e);
-                            showNotification("Failed to update jurisdiction data. Please try again.");
+                        }
+                    },
+                    destroy: {
+                        contentType: "application/json",
+                        url: "https://hivstiooj.cste.org/graphql",
+                        type: "POST",
+                        data: function(model) {
+                            return {
+                                query: DELETE_JURISDICTION_QUERY,
+                                variables: {
+                                    "input": {
+                                        "id": model.id,
+                                        "forceDelete": true
+                                    }
+                                }
+                            };
                         }
                     },
                     parameterMap: function(options, operation) {
-                        console.log('parameterMap called with operation:', operation, 'options:', options);
                         return kendo.stringify({
                             query: options.query,
                             variables: options.variables
@@ -292,77 +428,60 @@ mutation UpdateUserStdContact($input: UpdateUserStdContactInput!) {
                 },
                 schema: {
                     data: function(response) {
-                        console.log('Schema data response received:', response);
-                        
-                        // Check for GraphQL errors
                         if (response.errors && response.errors.length > 0) {
-                            console.error('GraphQL errors:', response.errors);
-                            showNotification('Error retrieving data: ' + response.errors[0].message);
+                            showNotification('Error: ' + response.errors[0].message);
                             return [];
                         }
                         
                         var data = response.data;
-                        console.log('Parsed data object:', data);
+                        if (!data) return [];
 
-                        if (!data) {
-                            console.error('No data received in response');
-                            return [];
+                        // Handle different response types
+                        if (data.jurisdictions && data.jurisdictions.edges) {
+                            return data.jurisdictions.edges.map(edge => {
+                                const node = edge.node;
+                                return {
+                                    id: node.id,
+                                    databaseId: node.databaseId,
+                                    title: { rendered: node.title },
+                                    modified: node.modified,
+                                    jurisdictionDetails: node.jurisdictionDetails
+                                };
+                            });
                         }
-
-                        // Handle read operation response
-                        if (data.jurisdictions && data.jurisdictions.edges && data.jurisdictions.edges.length > 0) {
-                            console.log('Processing jurisdictions data from read operation');
-                            // Extract the node from the first edge
-                            const node = data.jurisdictions.edges[0].node;
-                            console.log('Extracted node:', node);
-                            
-                            // Ensure the node has the expected structure
-                            if (!node.title || !node.jurisdictionDetails) {
-                                console.error('Node does not have expected structure:', node);
-                                return [];
-                            }
-                            
-                            // Transform the node to match the expected model format
-                            const transformedNode = {
-                                id: node.id,
-                                databaseId: node.databaseId,
-                                title: { rendered: node.title },
-                                modified: node.modified,
-                                jurisdictionDetails: node.jurisdictionDetails
-                            };
-                            
-                            console.log('Transformed node for grid:', transformedNode);
-                            return [transformedNode];
-                        }
-                        // Handle update operation response
-                        else if (data.updateJurisdiction && data.updateJurisdiction.jurisdiction) { 
-                            console.log('Found updateJurisdiction data:', data.updateJurisdiction.jurisdiction);
-                            // Format the update response to match the expected model structure
-                            const jurisdiction = data.updateJurisdiction.jurisdiction;
-                            const transformedNode = {
+                        else if (data.createJurisdiction && data.createJurisdiction.jurisdiction) {
+                            const jurisdiction = data.createJurisdiction.jurisdiction;
+                            return [{
                                 id: jurisdiction.id,
                                 databaseId: jurisdiction.databaseId,
                                 title: { rendered: jurisdiction.title },
-                                modified: jurisdiction.modified || new Date().toISOString(),
+                                modified: new Date().toISOString(),
                                 jurisdictionDetails: jurisdiction.jurisdictionDetails
-                            };
-                            console.log('Transformed update node for grid:', transformedNode);
-                            return [transformedNode]; 
+                            }];
                         }
-                        else {
-                            console.warn('No jurisdiction or updateJurisdiction data found in response', data);
+                        else if (data.updateJurisdiction && data.updateJurisdiction.jurisdiction) {
+                            const jurisdiction = data.updateJurisdiction.jurisdiction;
+                            return [{
+                                id: jurisdiction.id,
+                                databaseId: jurisdiction.databaseId,
+                                title: { rendered: jurisdiction.title },
+                                modified: new Date().toISOString(),
+                                jurisdictionDetails: jurisdiction.jurisdictionDetails
+                            }];
+                        }
+                        else if (data.deleteJurisdiction && data.deleteJurisdiction.deleted) {
                             return [];
                         }
+                        
+                        return [];
                     },
                     model: {
                         id: "id",
                         fields: {
                             id: { editable: false, nullable: true },
-                            title: {
-                                defaultValue: { rendered: "" },
-                                validation: { required: true }
-                            },
-                            modified: { type: "string", validation: { required: false } },
+                            databaseId: { editable: false, nullable: true },
+                            title: { defaultValue: { rendered: "" } },
+                            modified: { type: "string", editable: false },
                             jurisdictionDetails: {
                                 defaultValue: {
                                     agencyName: "",
@@ -370,220 +489,14 @@ mutation UpdateUserStdContact($input: UpdateUserStdContactInput!) {
                                     phoneJurisdiction: "",
                                     fipsCode: "",
                                     faxJurisdiction: ""
-                                },
-                                fields: {
-                                    agencyName: { type: "string", validation: { required: true } },
-                                    addressJurisdiction: { type: "string", validation: { required: true } },
-                                    phoneJurisdiction: { type: "string", validation: { required: true } },
-                                    fipsCode: { type: "string" },
-                                    faxJurisdiction: { type: "string" }
                                 }
                             }
                         }
                     }
-                },
-                error: function(e) {
-                    console.error("DataSource error:", e);
-                    showNotification("An error occurred with the data source. Please try again.");
-                },
-                requestStart: function() {
-                    console.log("DataSource request started");
-                },
-                requestEnd: function(e) {
-                    console.log("DataSource request ended:", e);
-                },
-                pageSize: 20
-            });
-            
-            // USERS GRID DATASOURCE AND INITIALIZATION
-            var usersDataSource = new kendo.data.DataSource({
-                transport: {
-                    read: {
-                        contentType: "application/json",
-                        url: "https://hivstiooj.cste.org/graphql",
-                        type: "POST",
-                        data: function() {
-                            console.log('READ operation for users with jurisdictionId:', jurisdictionId);
-                            const payload = { 
-                                query: READ_USERS_QUERY,
-                                variables: { "jurisdictionId": jurisdictionId }
-                            };
-                            console.log('READ payload for users:', JSON.stringify(payload));
-                            return payload;
-                        },
-                        success: function(response) {
-                            console.log('GraphQL READ response received for users:', response);
-                            if (response.data) {
-                                console.log('User data from server:', JSON.stringify(response.data, null, 2));
-                                if (response.data.users && 
-                                    response.data.users.edges) {
-                                    console.log('Found user edges:', response.data.users.edges.length);
-                                } else {
-                                    console.warn('Expected user data structure not found in response');
-                                }
-                            } else {
-                                console.warn('No data in response for users query');
-                            }
-                        },
-                        error: function(e) {
-                            console.error("Error in read operation for users:", e);
-                            console.error("Error details:", e.xhr ? e.xhr.responseText : e);
-                            showNotification("Failed to retrieve user data. Please try again.");
-                        },
-                        dataType: "json"
-                    },
-                    update: {
-                        contentType: "application/json",
-                        url: "https://hivstiooj.cste.org/graphql",
-                        type: "POST",
-                        data: function(model) {
-                            console.log('UPDATE operation for user:', model);
-                            
-                            // Collect hivRole and stiRole IDs from the model
-                            const hivRoleIds = Array.isArray(model.hivRole) ? 
-                                model.hivRole.map(role => parseInt(role.id)) : [];
-                            
-                            const stiRoleIds = Array.isArray(model.stiRole) ? 
-                                model.stiRole.map(role => parseInt(role.id)) : [];
-                            
-                            const payload = {
-                                query: UPDATE_USER_QUERY,
-                                variables: {
-                                    "input": {
-                                        "userId": model.id,
-                                        "userPhone": model.userPhone || "",
-                                        "userFax": model.userFax || "",
-                                        "notesStiHiv": model.notesStiHiv || "",
-                                        "hivRole": hivRoleIds,
-                                        "stiRole": stiRoleIds,
-                                        "userJurisdiction": jurisdictionId
-                                    }
-                                }
-                            };
-                            
-                            console.log('UPDATE payload for user:', JSON.stringify(payload));
-                            return payload;
-                        },
-                        success: function(response) {
-                            console.log('GraphQL UPDATE response received for user:', response);
-                            if (response.data && response.data.updateUserStdContact) {
-                                console.log('Update successful for user:', JSON.stringify(response.data.updateUserStdContact, null, 2));
-                                showNotification("User information updated successfully.", "success");
-                            } else {
-                                console.warn('Unexpected response format for user update');
-                            }
-                        },
-                        error: function(e) {
-                            console.error("Error in update operation for user:", e);
-                            console.error("Error details:", e.xhr ? e.xhr.responseText : e);
-                            showNotification("Failed to update user data. Please try again.");
-                        }
-                    },
-                    parameterMap: function(options, operation) {
-                        console.log('parameterMap called for users with operation:', operation, 'options:', options);
-                        return kendo.stringify({
-                            query: options.query,
-                            variables: options.variables
-                        });
-                    }
-                },
-                schema: {
-                    data: function(response) {
-                        console.log('Schema data response received for users:', response);
-                        
-                        // Check for GraphQL errors
-                        if (response.errors && response.errors.length > 0) {
-                            console.error('GraphQL errors in user query:', response.errors);
-                            showNotification('Error retrieving user data: ' + response.errors[0].message);
-                            return [];
-                        }
-                        
-                        var data = response.data;
-                        console.log('Parsed data object for users:', data);
-
-                        if (!data) {
-                            console.error('No data received in response for users');
-                            return [];
-                        }
-
-                        // Handle read operation response for users
-                        if (data.users && data.users.nodes) {
-                            console.log('Processing users data from read operation');
-                            
-                            // Transform the nodes to match the expected model format
-                            const transformedNodes = data.users.nodes.map(node => {
-                                return {
-                                    id: node.id,
-                                    databaseId: node.databaseId,
-                                    firstName: node.firstName,
-                                    lastName: node.lastName,
-                                    confidentialPhone: node.stdContactDetails?.confidentialPhone || "",
-                                    userPhone: node.stdContactDetails?.userPhone || "",
-                                    notesStiHiv: node.stdContactDetails?.notesStiHiv || "",
-                                    hivRole: node.stdContactDetails?.hivRole?.nodes || [],
-                                    stiRole: node.stdContactDetails?.stiRole?.nodes || []
-                                };
-                            });
-                            
-                            console.log('Transformed nodes for user grid:', transformedNodes);
-                            return transformedNodes;
-                        }
-                        // Handle update operation response
-                        else if (data.updateUserStdContact && data.updateUserStdContact.user) { 
-                            console.log('Found updateUserStdContact data:', data.updateUserStdContact.user);
-                            
-                            // Format the update response to match the expected model structure
-                            const user = data.updateUserStdContact.user;
-                            const transformedNode = {
-                                id: user.id,
-                                databaseId: user.databaseId,
-                                firstName: user.firstName,
-                                lastName: user.lastName,
-                                confidentialPhone: user.stdContactDetails?.confidentialPhone || "",
-                                userPhone: user.stdContactDetails?.userPhone || "",
-                                notesStiHiv: user.stdContactDetails?.notesStiHiv || "",
-                                hivRole: user.stdContactDetails?.hivRole?.nodes || [],
-                                stiRole: user.stdContactDetails?.stiRole?.nodes || []
-                            };
-                            
-                            console.log('Transformed update node for user grid:', transformedNode);
-                            return [transformedNode]; 
-                        }
-                        else {
-                            console.warn('No users data found in response', data);
-                            return [];
-                        }
-                    },
-                    model: {
-                        id: "id",
-                        fields: {
-                            id: { editable: false, nullable: true },
-                            databaseId: { editable: false, nullable: true },
-                            firstName: { editable: false, type: "string" },
-                            lastName: { editable: false, type: "string" },
-                            confidentialPhone: { type: "string" },
-                            userPhone: { type: "string" },
-                            notesStiHiv: { type: "string" },
-                            hivRole: { defaultValue: [] },
-                            stiRole: { defaultValue: [] }
-                        }
-                    }
-                },
-                error: function(e) {
-                    console.error("DataSource error for users:", e);
-                    showNotification("An error occurred with the user data source. Please try again.");
-                },
-                requestStart: function() {
-                    console.log("DataSource request started for users");
-                },
-                requestEnd: function(e) {
-                    console.log("DataSource request ended for users:", e);
                 },
                 pageSize: 20
             });
 
-            // Initialize jurisdiction grid
-            console.log('Creating Kendo Grid with dataSource:', jurisdictionDataSource);
             $("#juris_grid").kendoGrid({
                 dataSource: jurisdictionDataSource,
                 height: 175,
@@ -598,77 +511,347 @@ mutation UpdateUserStdContact($input: UpdateUserStdContactInput!) {
                     { field: "jurisdictionDetails.phoneJurisdiction", title: "Agency Phone (Main)" },
                     { field: "jurisdictionDetails.faxJurisdiction", title: "Agency Fax" },
                     { command: ["edit"], title: "&nbsp;", width: "250px" }
-                ],
-                dataBound: function(e) {
-                    console.log("Grid data bound event fired");
-                    const view = e.sender.dataSource.view();
-                    console.log("Grid data view:", view);
-                    if (view.length === 0) {
-                        console.warn("No data items to display in grid");
-                        // Add a custom message to the grid if empty
-                        const emptyMessage = $('<div class="k-grid-norecords">No jurisdiction data available.</div>');
-                        e.sender.element.find(".k-grid-content").append(emptyMessage);
+                ]
+            });
+        }
+
+        function initUsersGrid() {
+            // USERS GRID DATASOURCE
+            var usersDataSource = new kendo.data.DataSource({
+                autoSync: true, // Auto sync changes to server
+                batch: false,   // Process updates immediately, not in batches
+                transport: {
+                    create: {
+                        contentType: "application/json",
+                        url: "https://hivstiooj.cste.org/graphql",
+                        type: "POST",
+                        data: function(model) {
+                            // Extract role IDs and ensure integer format
+                            const hivRoleIds = Array.isArray(model.hivRole) ? 
+                                model.hivRole.map(role => {
+                                    const id = typeof role === 'object' ? role.databaseId : role;
+                                    return parseInt(id, 10);
+                                }) : [];
+                            
+                            const stiRoleIds = Array.isArray(model.stiRole) ? 
+                                model.stiRole.map(role => {
+                                    const id = typeof role === 'object' ? role.databaseId : role;
+                                    return parseInt(id, 10);
+                                }) : [];
+                            
+                            // Generate a secure password for the new user
+                            const securePassword = generateSecurePassword();
+                            console.log('Generated secure password:', securePassword);
+                            
+                            console.log('CREATE USER with data:', model);
+                            return {
+                                query: CREATE_USER_QUERY,
+                                variables: {
+                                    "input": {
+                                        "firstName": model.firstName || "",
+                                        "lastName": model.lastName || "",
+                                        "email": model.email || "",
+                                        "password": securePassword,
+                                        "confidentialPhone": model.confidentialPhone || "",
+                                        "userPhone": model.userPhone || "",
+                                        "userFax": model.userFax || "",
+                                        "notesStiHiv": model.notesStiHiv || "",
+                                        "hivRole": hivRoleIds,
+                                        "stiRole": stiRoleIds,
+                                        "userJurisdiction": parseInt(currentJurisdictionId, 10)
+                                    }
+                                }
+                            };
+                        }
+                    },
+                    read: {
+                        contentType: "application/json",
+                        url: "https://hivstiooj.cste.org/graphql",
+                        type: "POST",
+                        data: function() {
+                            return {
+                                query: READ_USERS_QUERY,
+                                variables: { "jurisdictionId": parseInt(currentJurisdictionId, 10) }
+                            };
+                        }
+                    },
+                    update: {
+                        contentType: "application/json",
+                        url: "https://hivstiooj.cste.org/graphql",
+                        type: "POST",
+                        data: function(model) {
+                            // Extract role IDs and ensure integer format
+                            const hivRoleIds = Array.isArray(model.hivRole) ? 
+                                model.hivRole.map(role => {
+                                    const id = typeof role === 'object' ? role.databaseId : role;
+                                    return parseInt(id, 10);
+                                }) : [];
+                            
+                            const stiRoleIds = Array.isArray(model.stiRole) ? 
+                                model.stiRole.map(role => {
+                                    const id = typeof role === 'object' ? role.databaseId : role;
+                                    return parseInt(id, 10);
+                                }) : [];
+                            
+                            console.log('UPDATE USER with data:', model);
+                            console.log('hivRoleIds:', hivRoleIds);
+                            console.log('stiRoleIds:', stiRoleIds);
+                            
+                            return {
+                                query: UPDATE_USER_QUERY,
+                                variables: {
+                                    "input": {
+                                        "userId": parseInt(model.databaseId, 10),
+                                        "firstName": model.firstName || "",
+                                        "lastName": model.lastName || "",
+                                        "email": model.email || "",
+                                        "confidentialPhone": model.confidentialPhone || "",
+                                        "userPhone": model.userPhone || "",
+                                        "userFax": model.userFax || "",
+                                        "notesStiHiv": model.notesStiHiv || "",
+                                        "hivRole": hivRoleIds,
+                                        "stiRole": stiRoleIds,
+                                        "userJurisdiction": parseInt(currentJurisdictionId, 10)
+                                    }
+                                }
+                            };
+                        }
+                    },
+                    destroy: {
+                        contentType: "application/json",
+                        url: "https://hivstiooj.cste.org/graphql",
+                        type: "POST",
+                        data: function(model) {
+                            return {
+                                query: DELETE_USER_QUERY,
+                                variables: {
+                                    "input": {
+                                        "id": model.id,
+                                        "forceDelete": true
+                                    }
+                                }
+                            };
+                        }
+                    },
+                    parameterMap: function(options, operation) {
+                        console.log('parameterMap for users with operation:', operation, 'options:', options);
+                        
+                        // For update operations, make sure we're using the current model state
+                        if (operation === 'update' && options.models) {
+                            console.log('Preparing update for models:', options.models);
+                        }
+                        
+                        const payload = kendo.stringify({
+                            query: options.query,
+                            variables: options.variables
+                        });
+                        console.log('Sending payload:', payload);
+                        return payload;
                     }
+                },
+                schema: {
+                    data: function(response) {
+                        console.log('User response received:', response);
+                        if (response.errors && response.errors.length > 0) {
+                            console.error('GraphQL errors:', response.errors);
+                            showNotification('Error: ' + response.errors[0].message);
+                            return [];
+                        }
+                        
+                        var data = response.data;
+                        if (!data) return [];
+
+                        // Handle user read operation
+                        if (data.users && data.users.nodes) {
+                            return data.users.nodes.map(node => {
+                                return {
+                                    id: node.id,
+                                    databaseId: node.databaseId,
+                                    firstName: node.firstName || "",
+                                    lastName: node.lastName || "",
+                                    email: node.email || "",
+                                    confidentialPhone: node.stdContactDetails?.confidentialPhone || "",
+                                    userPhone: node.stdContactDetails?.userPhone || "",
+                                    userFax: node.stdContactDetails?.userFax || "",
+                                    notesStiHiv: node.stdContactDetails?.notesStiHiv || "",
+                                    hivRole: node.stdContactDetails?.hivRole?.nodes || [],
+                                    stiRole: node.stdContactDetails?.stiRole?.nodes || []
+                                };
+                            });
+                        }
+                        // Handle user create operation
+                        else if (data.createUser && data.createUser.user) {
+                            const user = data.createUser.user;
+                            return [{
+                                id: user.id,
+                                databaseId: user.databaseId,
+                                firstName: user.firstName || "",
+                                lastName: user.lastName || "",
+                                email: user.email || "",
+                                confidentialPhone: user.stdContactDetails?.confidentialPhone || "",
+                                userPhone: user.stdContactDetails?.userPhone || "",
+                                userFax: user.stdContactDetails?.userFax || "",
+                                notesStiHiv: user.stdContactDetails?.notesStiHiv || "",
+                                hivRole: user.stdContactDetails?.hivRole?.nodes || [],
+                                stiRole: user.stdContactDetails?.stiRole?.nodes || []
+                            }];
+                        }
+                        // Handle user update operation
+                        else if (data.updateUserStdContact && data.updateUserStdContact.user) {
+                            const user = data.updateUserStdContact.user;
+                            return [{
+                                id: user.id,
+                                databaseId: user.databaseId,
+                                firstName: user.firstName || "",
+                                lastName: user.lastName || "",
+                                email: user.email || "",
+                                confidentialPhone: user.stdContactDetails?.confidentialPhone || "",
+                                userPhone: user.stdContactDetails?.userPhone || "",
+                                userFax: user.stdContactDetails?.userFax || "",
+                                notesStiHiv: user.stdContactDetails?.notesStiHiv || "",
+                                hivRole: user.stdContactDetails?.hivRole?.nodes || [],
+                                stiRole: user.stdContactDetails?.stiRole?.nodes || []
+                            }];
+                        }
+                        // Handle user delete operation
+                        else if (data.deleteUser && data.deleteUser.deleted) {
+                            return [];
+                        }
+                        
+                        return [];
+                    },
+                    model: {
+                        id: "id",
+                        fields: {
+                            id: { editable: false, nullable: true },
+                            databaseId: { editable: false, nullable: true },
+                            firstName: { type: "string" },
+                            lastName: { type: "string" },
+                            email: { type: "string" },
+                            confidentialPhone: { type: "string" },
+                            userPhone: { type: "string" },
+                            userFax: { type: "string" },
+                            notesStiHiv: { type: "string" },
+                            hivRole: { defaultValue: [] },
+                            stiRole: { defaultValue: [] }
+                        }
+                    }
+                },
+                pageSize: 20,
+                change: function(e) {
+                    console.log('UsersDataSource change event:', e);
                 }
             });
-            
-            // Initialize users grid
-            console.log('Creating Kendo Grid for users with dataSource:', usersDataSource);
+
             $("#users_grid").kendoGrid({
                 dataSource: usersDataSource,
                 height: 550,
                 scrollable: true,
                 sortable: true,
-                toolbar: ["save", "cancel"],
+                toolbar: ["create", "save", "cancel"],
                 editable: "inline",
+                save: function(e) {
+                    console.log("Users grid save event triggered", e);
+                    // Make sure the dataSource is marked as dirty
+                    if (e.model && e.model.dirty) {
+                        console.log("Model is dirty, ensuring update is sent");
+                    }
+                    
+                    // Force a sync to ensure changes are sent to the server
+                    setTimeout(function() {
+                        console.log("Forcing sync after save");
+                        usersDataSource.sync();
+                    }, 100);
+                },
                 columns: [
-                    { field: "firstName", title: "First Name", width: 150 },
-                    { field: "lastName", title: "Last Name", width: 150 },
+                    { field: "firstName", title: "First Name", width: 120 },
+                    { field: "lastName", title: "Last Name", width: 120 },
+                    { field: "email", title: "Email", width: 180 },
                     { field: "confidentialPhone", title: "Confidential Phone", width: 150 },
-                    { field: "userPhone", title: "Phone", width: 130 },
-                    { field: "notesStiHiv", title: "Notes", width: 200 },
+                    { field: "userPhone", title: "Phone", width: 120 },
+                    { field: "userFax", title: "Fax", width: 120 },
+                    { field: "notesStiHiv", title: "Notes", width: 180 },
                     { 
                         field: "hivRole", 
                         title: "HIV Roles", 
-                        width: 200,
+                        width: 180,
                         template: function(dataItem) {
                             return dataItem.hivRole && dataItem.hivRole.length ? 
                                 dataItem.hivRole.map(r => r.name).join(', ') : '—';
                         },
                         editor: function(container, options) {
-                            // This is a placeholder for a more complex editor if needed
-                            // For now, we'll just display the current values
-                            var currentRoles = options.model.hivRole.map(r => r.name).join(', ') || '—';
-                            container.text(currentRoles);
-                            console.log('HIV Roles editor:', options.model.hivRole);
+                            $('<input name="hivRole" />')
+                                .appendTo(container)
+                                .kendoMultiSelect({
+                                    placeholder: "Select HIV Roles...",
+                                    dataTextField: "name",
+                                    dataValueField: "databaseId",
+                                    dataSource: hivRolesData,
+                                    value: options.model.hivRole.map(role => 
+                                        typeof role === 'object' ? role.databaseId : role),
+                                    change: function(e) {
+                                        const selectedValues = e.sender.value();
+                                        options.model.hivRole = [];
+                                        selectedValues.forEach(value => {
+                                            const roleObj = hivRolesData.find(r => String(r.databaseId) === String(value));
+                                            if (roleObj) {
+                                                options.model.hivRole.push({ 
+                                                    id: roleObj.id,
+                                                    databaseId: roleObj.databaseId,
+                                                    name: roleObj.name
+                                                });
+                                            }
+                                        });
+                                        
+                                        // Mark as dirty to ensure update and trigger direct sync
+                                        options.model.dirty = true;
+                                        console.log("Model marked dirty after HIV role change");
+                                    }
+                                });
                         }
                     },
-                    { command: ["edit"], title: "&nbsp;", width: "150px" }
-                ],
-                dataBound: function(e) {
-                    console.log("Users grid data bound event fired");
-                    const view = e.sender.dataSource.view();
-                    console.log("Users grid data view:", view);
-                    if (view.length === 0) {
-                        console.warn("No user data items to display in grid");
-                        // Add a custom message to the grid if empty
-                        const emptyMessage = $('<div class="k-grid-norecords">No user data available.</div>');
-                        e.sender.element.find(".k-grid-content").append(emptyMessage);
-                    }
-                }
+                    { 
+                        field: "stiRole", 
+                        title: "STI Roles", 
+                        width: 180,
+                        template: function(dataItem) {
+                            return dataItem.stiRole && dataItem.stiRole.length ? 
+                                dataItem.stiRole.map(r => r.name).join(', ') : '—';
+                        },
+                        editor: function(container, options) {
+                            $('<input name="stiRole" />')
+                                .appendTo(container)
+                                .kendoMultiSelect({
+                                    placeholder: "Select STI Roles...",
+                                    dataTextField: "name",
+                                    dataValueField: "databaseId",
+                                    dataSource: stiRolesData,
+                                    value: options.model.stiRole.map(role => 
+                                        typeof role === 'object' ? role.databaseId : role),
+                                    change: function(e) {
+                                        const selectedValues = e.sender.value();
+                                        options.model.stiRole = [];
+                                        selectedValues.forEach(value => {
+                                            const roleObj = stiRolesData.find(r => String(r.databaseId) === String(value));
+                                            if (roleObj) {
+                                                options.model.stiRole.push({ 
+                                                    id: roleObj.id,
+                                                    databaseId: roleObj.databaseId,
+                                                    name: roleObj.name
+                                                });
+                                            }
+                                        });
+                                        
+                                        // Mark as dirty to ensure update and trigger direct sync
+                                        options.model.dirty = true;
+                                        console.log("Model marked dirty after STI role change");
+                                    }
+                                });
+                        }
+                    },
+                    { command: ["edit", "destroy"], title: "&nbsp;", width: "130px" }
+                ]
             });
-            
-            // Force a read on both DataSources to ensure data is loaded
-            jurisdictionDataSource.read();
-            console.log('Manually triggered jurisdictionDataSource read');
-            
-            usersDataSource.read();
-            console.log('Manually triggered usersDataSource read');
-        })
-        .catch(error => {
-            console.error("Error initializing application:", error);
-            console.error("Error details:", error.stack || error.message || 'No additional error details');
-            showNotification("Failed to initialize application. Please refresh and try again.");
-        });
-});
+        }
+    });
 </script>
