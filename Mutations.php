@@ -80,6 +80,141 @@ add_action('graphql_register_types', function() {
      * - Contact information (phone, fax)
      * - Notes and jurisdiction assignment
      *********************************************************************************/
+register_graphql_mutation('createUser', [
+    // Only include standard WordPress user fields - custom fields will be handled in a separate update
+    'inputFields' => [
+        'username'          => ['type' => ['non_null' => 'String'], 'description' => __('User\'s username (required)', 'your-textdomain')],
+        'firstName'         => ['type' => 'String', 'description' => __('User\'s first name', 'your-textdomain')],
+        'lastName'          => ['type' => 'String', 'description' => __('User\'s last name', 'your-textdomain')],
+        'email'             => ['type' => ['non_null' => 'String'], 'description' => __('User\'s email address (required)', 'your-textdomain')],
+        'password'          => ['type' => ['non_null' => 'String'], 'description' => __('User\'s password (required)', 'your-textdomain')],
+    ],
+    'outputFields' => [
+        'user' => [
+            'type' => 'User',
+            'resolve' => function($payload, $args, $context, $info) {
+                if (!empty($payload['user_id'])) {
+                    $user_obj = get_user_by('ID', $payload['user_id']);
+                    if ($user_obj) {
+                        return new \WPGraphQL\Model\User($user_obj);
+                    }
+                }
+                return null;
+            }
+        ]
+    ],
+    'mutateAndGetPayload' => function($input, $context, $info) {
+        error_log('User creation mutation input: ' . print_r($input, true));
+        
+        try {
+            // Required fields validation
+            if (empty($input['username'])) {
+                throw new \GraphQL\Error\UserError('Username is required.');
+            }
+            
+            if (empty($input['email']) || !is_email($input['email'])) {
+                throw new \GraphQL\Error\UserError('Valid email is required.');
+            }
+            
+            if (empty($input['password'])) {
+                throw new \GraphQL\Error\UserError('Password is required.');
+            }
+            
+            // Check if username or email already exists
+            if (username_exists($input['username'])) {
+                throw new \GraphQL\Error\UserError('Username already exists.');
+            }
+            
+            if (email_exists($input['email'])) {
+                throw new \GraphQL\Error\UserError('Email already exists.');
+            }
+            
+            // Create the user with core WordPress fields only
+            $user_data = [
+                'user_login' => sanitize_user($input['username']),
+                'user_email' => sanitize_email($input['email']),
+                'user_pass'  => $input['password'], // wp_insert_user will handle password hashing
+                'role'       => 'subscriber', // default role, adjust as needed
+            ];
+            
+            if (!empty($input['firstName'])) {
+                $user_data['first_name'] = sanitize_text_field($input['firstName']);
+            }
+            
+            if (!empty($input['lastName'])) {
+                $user_data['last_name'] = sanitize_text_field($input['lastName']);
+            }
+            
+            // Insert the user
+            $user_id = wp_insert_user($user_data);
+            
+            if (is_wp_error($user_id)) {
+                error_log('WP Error on user creation: ' . $user_id->get_error_message());
+                throw new \GraphQL\Error\UserError('Failed to create user: ' . $user_id->get_error_message());
+            }
+            
+            error_log("User created with ID: $user_id");
+            
+            // Return only the user ID - custom fields will be updated separately using updateUserStdContact
+            return [
+                'user_id' => $user_id
+            ];
+            
+        } catch (\Exception $e) {
+            error_log('Error in user creation mutation: ' . $e->getMessage());
+            throw $e; // Re-throw to be handled by GraphQL
+        }
+    }
+]);
+
+register_graphql_mutation('deleteUser', [
+    'inputFields' => [
+        'id' => [
+            'type' => ['non_null' => 'ID'],
+            'description' => __('ID of the user to delete', 'your-textdomain'),
+        ]
+        // Removed forceDelete as it's not recognized in DeleteUserInput
+    ],
+    'outputFields' => [
+        'deletedId' => [
+            'type' => 'ID',
+            'description' => __('The ID of the deleted user', 'your-textdomain'),
+            'resolve' => function($payload) {
+                return $payload['deletedId'] ?? null;
+            }
+        ]
+        // Removed success and deleted fields as they're not recognized in DeleteUserPayload
+    ],
+    'mutateAndGetPayload' => function($input, $context, $info) {
+        try {
+            // Get the user ID from the global ID
+            $user_id = \WPGraphQL\Utils\Utils::get_database_id_from_id($input['id'], 'user');
+            
+            if (!$user_id) {
+                throw new \GraphQL\Error\UserError('Invalid user ID.');
+            }
+            
+            // Check if user exists
+            $user = get_user_by('ID', $user_id);
+            if (!$user) {
+                throw new \GraphQL\Error\UserError('User not found.');
+            }
+            
+            // Perform the deletion
+            $reassign = null; // default to not reassigning posts
+            $result = wp_delete_user($user_id, $reassign);
+            
+            // Just return the ID, as that's the only field supported in the schema
+            return [
+                'deletedId' => $input['id']
+            ];
+        } catch (\Exception $e) {
+            error_log('Error in user deletion mutation: ' . $e->getMessage());
+            throw $e; // Re-throw to be handled by GraphQL
+        }
+    }
+]);
+
 register_graphql_mutation('updateUserStdContact', [
     'inputFields' => [
         'userId' => [

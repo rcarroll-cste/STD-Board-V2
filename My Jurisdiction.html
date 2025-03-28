@@ -177,11 +177,7 @@
     var DELETE_USER_QUERY = `
     mutation DeleteUser($input: DeleteUserInput!) {
       deleteUser(input: $input) {
-        user {
-          id
-          databaseId
-        }
-        deleted
+        deletedId
       }
     }
     `;
@@ -348,6 +344,7 @@
         function initJurisdictionGrid() {
             // JURISDICTION GRID DATASOURCE
             var jurisdictionDataSource = new kendo.data.DataSource({
+                autoSync: false, // Disable auto sync - require manual save
                 transport: {
                     create: {
                         contentType: "application/json",
@@ -503,6 +500,11 @@
                 sortable: true,
                 toolbar: ["save", "cancel"],
                 editable: "inline",
+                save: function(e) {
+                    console.log("Jurisdiction grid save event triggered", e);
+                    // Manually sync when save is clicked
+                    jurisdictionDataSource.sync();
+                },
                 columns: [
                     { field: "title.rendered", title: "Jurisdiction Name" },
                     { field: "jurisdictionDetails.fipsCode", title: "FIPS Code" },
@@ -518,7 +520,7 @@
         function initUsersGrid() {
             // USERS GRID DATASOURCE
             var usersDataSource = new kendo.data.DataSource({
-                autoSync: true, // Auto sync changes to server
+                autoSync: false, // Disable auto sync - require manual save
                 batch: false,   // Process updates immediately, not in batches
                 transport: {
                     create: {
@@ -543,25 +545,54 @@
                             const securePassword = generateSecurePassword();
                             console.log('Generated secure password:', securePassword);
                             
+                            // Generate username based on email (default) or first+last name
+                            let username = "";
+                            if (model.email) {
+                                // Generate username from email by removing the domain part
+                                username = model.email.split('@')[0];
+                            } else if (model.firstName && model.lastName) {
+                                // Generate username from first name + last name
+                                username = (model.firstName + "." + model.lastName).toLowerCase();
+                            } else {
+                                // Fallback to a timestamp-based username
+                                username = "user_" + new Date().getTime();
+                            }
+                            // Sanitize username (remove special chars and spaces)
+                            username = username.replace(/[^a-zA-Z0-9._-]/g, "");
+                            console.log('Generated username:', username);
+                            
+                            // Step 1: Create user with core fields only
                             console.log('CREATE USER with data:', model);
-                            return {
+                            
+                            // Store the full model data for the second step using closure variables
+                            // Make these accessible to the schema.data callback later
+                            window.tempUserCreationData = {
+                                fullModel: {
+                                    confidentialPhone: model.confidentialPhone || "",
+                                    userPhone: model.userPhone || "",
+                                    userFax: model.userFax || "",
+                                    notesStiHiv: model.notesStiHiv || ""
+                                },
+                                fullHivRoleIds: hivRoleIds,
+                                fullStiRoleIds: stiRoleIds
+                            };
+                            
+                            // Only include the standard WordPress fields in the mutation
+                            const createPayload = {
                                 query: CREATE_USER_QUERY,
                                 variables: {
                                     "input": {
+                                        "username": username,
                                         "firstName": model.firstName || "",
                                         "lastName": model.lastName || "",
                                         "email": model.email || "",
-                                        "password": securePassword,
-                                        "confidentialPhone": model.confidentialPhone || "",
-                                        "userPhone": model.userPhone || "",
-                                        "userFax": model.userFax || "",
-                                        "notesStiHiv": model.notesStiHiv || "",
-                                        "hivRole": hivRoleIds,
-                                        "stiRole": stiRoleIds,
-                                        "userJurisdiction": parseInt(currentJurisdictionId, 10)
+                                        "password": securePassword
                                     }
                                 }
                             };
+                            
+                            console.log('CREATE USER GraphQL payload:', JSON.stringify(createPayload, null, 2));
+                            return createPayload;
                         }
                     },
                     read: {
@@ -626,8 +657,8 @@
                                 query: DELETE_USER_QUERY,
                                 variables: {
                                     "input": {
-                                        "id": model.id,
-                                        "forceDelete": true
+                                        "id": model.id
+                                        // forceDelete removed as it's not supported by the schema
                                     }
                                 }
                             };
@@ -682,19 +713,82 @@
                         // Handle user create operation
                         else if (data.createUser && data.createUser.user) {
                             const user = data.createUser.user;
-                            return [{
+                            
+                            // Step 2: Now that user is created, update with custom fields
+                            console.log('User created successfully, now updating custom fields...');
+                            
+                            // Get the stored data from step 1
+                            const storedData = window.tempUserCreationData || {};
+                            
+                            // Create a shallow copy to avoid model mutation warnings
+                            const newUser = {
                                 id: user.id,
                                 databaseId: user.databaseId,
                                 firstName: user.firstName || "",
                                 lastName: user.lastName || "",
                                 email: user.email || "",
-                                confidentialPhone: user.stdContactDetails?.confidentialPhone || "",
-                                userPhone: user.stdContactDetails?.userPhone || "",
-                                userFax: user.stdContactDetails?.userFax || "",
-                                notesStiHiv: user.stdContactDetails?.notesStiHiv || "",
-                                hivRole: user.stdContactDetails?.hivRole?.nodes || [],
-                                stiRole: user.stdContactDetails?.stiRole?.nodes || []
-                            }];
+                                confidentialPhone: storedData.fullModel?.confidentialPhone || "",
+                                userPhone: storedData.fullModel?.userPhone || "",
+                                userFax: storedData.fullModel?.userFax || "",
+                                notesStiHiv: storedData.fullModel?.notesStiHiv || "",
+                                hivRole: [],  // Will be populated after update
+                                stiRole: []   // Will be populated after update
+                            };
+                            
+                            // Prepare the update mutation payload
+                            const updatePayload = {
+                                query: UPDATE_USER_QUERY,
+                                variables: {
+                                    "input": {
+                                        "userId": user.databaseId,
+                                        "confidentialPhone": storedData.fullModel?.confidentialPhone || "",
+                                        "userPhone": storedData.fullModel?.userPhone || "",
+                                        "userFax": storedData.fullModel?.userFax || "",
+                                        "notesStiHiv": storedData.fullModel?.notesStiHiv || "",
+                                        "hivRole": storedData.fullHivRoleIds || [],
+                                        "stiRole": storedData.fullStiRoleIds || [],
+                                        "userJurisdiction": parseInt(currentJurisdictionId, 10)
+                                    }
+                                }
+                            };
+                            
+                            console.log('UPDATE USER GraphQL payload:', JSON.stringify(updatePayload, null, 2));
+                            
+                            // Clean up the temporary data
+                            delete window.tempUserCreationData;
+                            
+                            // Send the update mutation to add the custom fields
+                            $.ajax({
+                                url: 'https://hivstiooj.cste.org/graphql',
+                                method: 'POST',
+                                contentType: 'application/json',
+                                data: JSON.stringify(updatePayload),
+                                dataType: 'json',
+                                xhrFields: { withCredentials: true }
+                            }).then(function(updateResponse) {
+                                if (updateResponse.errors && updateResponse.errors.length > 0) {
+                                    console.error('Error updating user custom fields:', updateResponse.errors);
+                                    showNotification('Error updating user custom fields: ' + 
+                                                     updateResponse.errors[0].message, 'warning');
+                                } else {
+                                    console.log('User custom fields updated successfully');
+                                    
+                                    // Update the local model with the roles if available
+                                    if (updateResponse.data?.updateUserStdContact?.user?.stdContactDetails) {
+                                        const details = updateResponse.data.updateUserStdContact.user.stdContactDetails;
+                                        newUser.hivRole = details.hivRole?.nodes || [];
+                                        newUser.stiRole = details.stiRole?.nodes || [];
+                                    }
+                                    
+                                    // Refresh the grid to show updated data
+                                    usersDataSource.read();
+                                }
+                            }).catch(function(error) {
+                                console.error('AJAX error updating user custom fields:', error);
+                                showNotification('Error updating user custom fields', 'error');
+                            });
+                            
+                            return [newUser];
                         }
                         // Handle user update operation
                         else if (data.updateUserStdContact && data.updateUserStdContact.user) {
@@ -714,7 +808,7 @@
                             }];
                         }
                         // Handle user delete operation
-                        else if (data.deleteUser && data.deleteUser.deleted) {
+                        else if (data.deleteUser && data.deleteUser.deletedId) {
                             return [];
                         }
                         
@@ -752,16 +846,11 @@
                 editable: "inline",
                 save: function(e) {
                     console.log("Users grid save event triggered", e);
-                    // Make sure the dataSource is marked as dirty
+                    // Manually sync when save is clicked
                     if (e.model && e.model.dirty) {
-                        console.log("Model is dirty, ensuring update is sent");
-                    }
-                    
-                    // Force a sync to ensure changes are sent to the server
-                    setTimeout(function() {
-                        console.log("Forcing sync after save");
+                        console.log("Model is dirty, performing manual sync");
                         usersDataSource.sync();
-                    }, 100);
+                    }
                 },
                 columns: [
                     { field: "firstName", title: "First Name", width: 120 },
