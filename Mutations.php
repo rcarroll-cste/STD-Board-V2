@@ -575,61 +575,25 @@ register_graphql_mutation('updateUserStdContact', [
     
     /**
      * Register the UpdateOOJDetail mutation
+     * 
+     * Note: The inputFields are handled by WPGraphQL core. 
+     * We don't need to register all fields explicitly as they're auto-generated.
+     * The actual expected format from GraphQL introspection is:
+     * - 'id': Required ID in base64 global ID format (e.g., "cG9zdDo2NjE=" for post:661)
+     * - 'title', 'date', 'status': Standard post fields
+     * - For taxonomies, complex objects with this structure:
+     *   oOJInfections: { append: false, nodes: [{ id: 2 }] }
+     *   
+     * See mutateAndGetPayload for how these are processed.
      */
     register_graphql_mutation('updateOOJDetail', [
+        // Let WPGraphQL handle input fields definition
         'inputFields' => [
             'id' => [
                 'type' => ['non_null' => 'ID'],
-                'description' => __('ID of the OOJ Detail to update', 'your-textdomain'),
+                'description' => __('ID of the OOJ Detail to update (Base64 Global ID)', 'your-textdomain'),
             ],
-            'title' => [
-                'type' => 'String',
-                'description' => __('Title for the OOJ Detail.', 'your-textdomain'),
-            ],
-            'status' => [
-                'type' => 'PostStatusEnum',
-                'description' => __('Status of the OOJ Detail', 'your-textdomain'),
-            ],
-            'jurisdictionSelection' => [
-                'type' => 'Int',
-                'description' => __('The jurisdiction selection (std_jurisdiction post ID)', 'your-textdomain'),
-            ],
-            'lastDateOfExposure' => [
-                'type' => 'String',
-                'description' => __('Last date of exposure', 'your-textdomain'),
-            ],
-            'dispositionsReturned' => [
-                'type' => 'String',
-                'description' => __('Dispositions returned', 'your-textdomain'),
-            ],
-            'acceptAndInvestigate' => [
-                'type' => 'String',
-                'description' => __('Accept and investigate', 'your-textdomain'),
-            ],
-            'notes' => [
-                'type' => 'String',
-                'description' => __('Notes for this OOJ detail', 'your-textdomain'),
-            ],
-            'pointOfContacts' => [
-                'type' => ['list_of' => 'Int'],
-                'description' => __('Point of contacts user IDs', 'your-textdomain'),
-            ],
-            'oOJInfections' => [
-                'type' => 'Int',
-                'description' => __('OOJ infection term ID', 'your-textdomain'),
-            ],
-            'oOJActivities' => [
-                'type' => ['list_of' => 'Int'],
-                'description' => __('OOJ activity term IDs', 'your-textdomain'),
-            ],
-            'methodsOfTransmitting' => [
-                'type' => ['list_of' => 'Int'],
-                'description' => __('Method of transmitting term IDs', 'your-textdomain'),
-            ],
-            'acceptableForPiis' => [
-                'type' => ['list_of' => 'Int'],
-                'description' => __('Acceptable for PII term IDs', 'your-textdomain'),
-            ],
+            // Other fields are handled automatically by WPGraphQL
         ],
         'outputFields' => [
             'oojDetail' => [
@@ -664,50 +628,108 @@ register_graphql_mutation('updateUserStdContact', [
                 $post_args['post_status'] = $input['status'];
             }
             
+            if (!empty($input['date'])) {
+                $post_args['post_date'] = $input['date'];
+                $post_args['post_date_gmt'] = get_gmt_from_date($input['date']);
+            }
+            
             if (count($post_args) > 1) {
                 wp_update_post($post_args);
             }
             
-            // Update taxonomies
-            if (isset($input['oOJInfections'])) {
-                wp_set_object_terms($post_id, [$input['oOJInfections']], 'acf-ooj-infection');
+            // Update taxonomies with new complex structure
+            if (!empty($input['oOJInfections']) && !empty($input['oOJInfections']['nodes'])) {
+                $infection_ids = array_map(function($node) {
+                    return isset($node['id']) ? $node['id'] : 0;
+                }, $input['oOJInfections']['nodes']);
+                
+                $infection_ids = array_filter($infection_ids);
+                if (!empty($infection_ids)) {
+                    $append = isset($input['oOJInfections']['append']) ? $input['oOJInfections']['append'] : false;
+                    wp_set_object_terms($post_id, $infection_ids, 'acf-ooj-infection', $append);
+                }
             }
             
-            if (isset($input['oOJActivities'])) {
-                wp_set_object_terms($post_id, $input['oOJActivities'], 'acf-ooj-activity');
+            if (!empty($input['oOJActivities']) && !empty($input['oOJActivities']['nodes'])) {
+                $activity_ids = array_map(function($node) {
+                    return isset($node['id']) ? $node['id'] : 0;
+                }, $input['oOJActivities']['nodes']);
+                
+                $activity_ids = array_filter($activity_ids);
+                if (!empty($activity_ids)) {
+                    $append = isset($input['oOJActivities']['append']) ? $input['oOJActivities']['append'] : false;
+                    wp_set_object_terms($post_id, $activity_ids, 'acf-ooj-activity', $append);
+                }
             }
             
-            if (isset($input['methodsOfTransmitting'])) {
-                wp_set_object_terms($post_id, $input['methodsOfTransmitting'], 'iccr_method-of-transmitting');
+            if (!empty($input['methodsOfTransmitting']) && !empty($input['methodsOfTransmitting']['nodes'])) {
+                $method_ids = array_map(function($node) {
+                    return isset($node['id']) ? $node['id'] : 0;
+                }, $input['methodsOfTransmitting']['nodes']);
+                
+                $method_ids = array_filter($method_ids);
+                if (!empty($method_ids)) {
+                    $append = isset($input['methodsOfTransmitting']['append']) ? $input['methodsOfTransmitting']['append'] : false;
+                    wp_set_object_terms($post_id, $method_ids, 'iccr_method-of-transmitting', $append);
+                }
             }
             
-            if (isset($input['acceptableForPiis'])) {
-                wp_set_object_terms($post_id, $input['acceptableForPiis'], 'acceptable-for-pii');
+            if (!empty($input['acceptableForPiis']) && !empty($input['acceptableForPiis']['nodes'])) {
+                $pii_ids = array_map(function($node) {
+                    return isset($node['id']) ? $node['id'] : 0;
+                }, $input['acceptableForPiis']['nodes']);
+                
+                $pii_ids = array_filter($pii_ids);
+                if (!empty($pii_ids)) {
+                    $append = isset($input['acceptableForPiis']['append']) ? $input['acceptableForPiis']['append'] : false;
+                    wp_set_object_terms($post_id, $pii_ids, 'acceptable-for-pii', $append);
+                }
             }
             
-            // Update ACF fields
-            if (isset($input['jurisdictionSelection'])) {
-                update_field('jurisdiction_selection', $input['jurisdictionSelection'], $post_id);
+            // Handle ACF fields
+            // Since these are not in the GraphQL schema, we need to extract them from a top level meta object
+            // or provide clients with a way to pass them. For now, use the graphql_mutation_extras input if available.
+            
+            $meta_fields = [
+                'jurisdictionSelection' => 'jurisdiction_selection',
+                'lastDateOfExposure' => 'last_date_of_exposure',
+                'dispositionsReturned' => 'dispositions_returned',
+                'acceptAndInvestigate' => 'accept_and_investigate',
+                'notes' => 'notes',
+                'pointOfContacts' => 'point_of_contacts',
+            ];
+            
+            foreach ($meta_fields as $inputKey => $acfKey) {
+                if (isset($input[$inputKey])) {
+                    update_field($acfKey, $input[$inputKey], $post_id);
+                }
             }
             
-            if (isset($input['lastDateOfExposure'])) {
-                update_field('last_date_of_exposure', $input['lastDateOfExposure'], $post_id);
-            }
-            
-            if (isset($input['dispositionsReturned'])) {
-                update_field('dispositions_returned', $input['dispositionsReturned'], $post_id);
-            }
-            
-            if (isset($input['acceptAndInvestigate'])) {
-                update_field('accept_and_investigate', $input['acceptAndInvestigate'], $post_id);
-            }
-            
-            if (isset($input['notes'])) {
-                update_field('notes', $input['notes'], $post_id);
-            }
-            
-            if (isset($input['pointOfContacts'])) {
-                update_field('point_of_contacts', $input['pointOfContacts'], $post_id);
+            // Alternative approach for a custom meta object
+            if (!empty($input['oojMeta'])) {
+                if (isset($input['oojMeta']['jurisdictionSelection'])) {
+                    update_field('jurisdiction_selection', $input['oojMeta']['jurisdictionSelection'], $post_id);
+                }
+                
+                if (isset($input['oojMeta']['lastDateOfExposure'])) {
+                    update_field('last_date_of_exposure', $input['oojMeta']['lastDateOfExposure'], $post_id);
+                }
+                
+                if (isset($input['oojMeta']['dispositionsReturned'])) {
+                    update_field('dispositions_returned', $input['oojMeta']['dispositionsReturned'], $post_id);
+                }
+                
+                if (isset($input['oojMeta']['acceptAndInvestigate'])) {
+                    update_field('accept_and_investigate', $input['oojMeta']['acceptAndInvestigate'], $post_id);
+                }
+                
+                if (isset($input['oojMeta']['notes'])) {
+                    update_field('notes', $input['oojMeta']['notes'], $post_id);
+                }
+                
+                if (isset($input['oojMeta']['pointOfContacts'])) {
+                    update_field('point_of_contacts', $input['oojMeta']['pointOfContacts'], $post_id);
+                }
             }
             
             return [
@@ -719,6 +741,12 @@ register_graphql_mutation('updateUserStdContact', [
     /**
      * Register the DeleteOOJDetail mutation
      */
+    // Register the jurisdictionId argument for OOJ Details query
+    register_graphql_field('RootQueryToOOJDetailConnectionWhereArgs', 'jurisdictionId', [
+        'type' => 'Int',
+        'description' => __('Filter OOJ Details by jurisdiction ID', 'your-textdomain'),
+    ]);
+    
     register_graphql_mutation('deleteOOJDetail', [
         'inputFields' => [
             'id' => [

@@ -6,6 +6,196 @@
 </script>
 
 <script>
+  // GraphQL queries defined at the top of the file for better maintainability
+  const FETCH_OOJ_INFECTIONS_QUERY = `
+    query GetOojInfections {
+      oOJInfections {
+        nodes {
+          databaseId
+          name
+        }
+      }
+    }
+  `;
+
+  const FETCH_OOJ_ACTIVITIES_QUERY = `
+    query GetOojActivities {
+      iCCRActivities {
+        nodes {
+          databaseId
+          name
+        }
+      }
+    }
+  `;
+
+  const FETCH_HIV_ROLES_QUERY = `
+    query GetHivRoles {
+      hIVRoles {
+        nodes {
+          databaseId
+          name
+        }
+      }
+    }
+  `;
+
+  const FETCH_STI_ROLES_QUERY = `
+    query GetStiRoles {
+      sTIRoles {
+        nodes {
+          databaseId
+          name
+        }
+      }
+    }
+  `;
+
+  const FETCH_METHODS_OF_TRANSMISSION_QUERY = `
+    query GetMethodsOfTransmission {
+      methodsOfTransmitting {
+        nodes {
+          databaseId
+          name
+        }
+      }
+    }
+  `;
+
+  const FETCH_ALL_USERS_QUERY = `
+    query GetAllUsers {
+      users(first: 1000) {
+        nodes {
+          databaseId
+          firstName
+          lastName
+          email
+          name
+          stdContactDetails {
+            userJurisdiction {
+              nodes {
+                databaseId
+              }
+            }
+            hivRole {
+              nodes {
+                databaseId
+              }
+            }
+            stiRole {
+              nodes {
+                databaseId
+              }
+            }
+            userPhone
+            userFax
+            notesStiHiv
+          }
+        }
+      }
+    }
+  `;
+
+  const FETCH_USERS_BY_JURISDICTION_QUERY = `
+    query GetUsersByJurisdiction($jurisdictionId: Int!) {
+      users(where: { jurisdictionDatabaseId: $jurisdictionId }) {
+        nodes {
+          databaseId
+          firstName
+          lastName
+          email
+          stdContactDetails {
+            userJurisdiction {
+              nodes {
+                databaseId
+              }
+            }
+            hivRole {
+              nodes {
+                databaseId
+              }
+            }
+            stiRole {
+              nodes {
+                databaseId
+              }
+            }
+            userPhone
+            userFax
+            notesStiHiv
+          }
+        }
+      }
+    }
+  `;
+
+  const FETCH_ALL_JURISDICTIONS_QUERY = `
+    query GetAllJurisdictions {
+      jurisdictions(first: 100) {
+        nodes {
+          databaseId
+          title
+          date
+          modified
+          jurisdictionDetails {
+            addressJurisdiction
+            agencyName
+            fipsCode
+            phoneJurisdiction
+          }
+          oojJurisdictionDetails {
+            oojDetails {
+              oojId
+              acceptAndInvestigate
+              acceptAndInvestigateLastDateOfExposure
+              confidentialPhone
+              dispositionsReturned
+              informationReturned
+              notes
+              oojInfection {
+                nodes {
+                  databaseId
+                }
+              }
+              oojActivity {
+                nodes {
+                  databaseId
+                }
+              }
+              pointOfContacts {
+                nodes {
+                  databaseId
+                }
+              }
+              methodOfTransmitting {
+                nodes {
+                  databaseId
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  `;
+
+  const FETCH_JURISDICTION_QUERY = `
+    query GetJurisdiction($id: ID!) {
+      jurisdiction(id: $id, idType: DATABASE_ID) {
+        databaseId
+        title
+        modified
+        jurisdictionDetails {
+          fipsCode
+          agencyName
+          addressJurisdiction
+          phoneJurisdiction
+        }
+      }
+    }
+  `;
+
+  // Global variables
   var jurisdictionId = null;
   var currentUserId = null;
   var oojInfectionList = [];
@@ -19,21 +209,72 @@
   var contactGrid;
   var jurisdictionList = [];
   var oojDetails = oojDetails || [];
-
   var allJurisdictionList = [];
   var methodsOfTransmissionList = [];
 
-  // Replace REST API URLs with GraphQL endpoint
+  // GraphQL endpoint
   const graphqlEndpoint = "https://hivstiooj.cste.org/graphql";
+
+  // Logger utility for consistent logging
+  const logger = {
+    info: function(message, data) {
+      console.log(message, data || '');
+    },
+    error: function(message, error) {
+      console.error(message, error || '');
+    },
+    warn: function(message, data) {
+      console.warn(message, data || '');
+    }
+  };
 
   $(document).ready(function () {
     initializeApplication();
   });
 
-  // Add main initialization function
+  // Helper function for making GraphQL requests
+  async function makeGraphQLRequest(query, variables = {}) {
+    try {
+      logger.info('Making GraphQL request with:', {
+        query: query,
+        variables: variables
+      });
+
+      const response = await fetch(graphqlEndpoint, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify({
+          query,
+          variables
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const result = await response.json();
+
+      if (result.errors) {
+        logger.error('GraphQL response contains errors:', result.errors);
+        throw new Error(result.errors[0].message);
+      }
+
+      return result;
+    } catch (error) {
+      logger.error('GraphQL request failed:', error);
+      throw error;
+    }
+  }
+
+  // Main initialization function
   async function initializeApplication() {
     try {
-      console.log("Initializing application with GraphQL...");
+      logger.info("Initializing application with GraphQL...");
       
       // Fetch all necessary data using GraphQL
       const [
@@ -64,73 +305,20 @@
       allJurisdictionList = allJurisdictionData;
       
       // Initialize the UI components
-        GenerateJurisdictionDropdown();
-        initializeJurisdictionGrid();
-        initializeOojGrid([]); // Initialize with an empty array
-        initializeContactGrid();
+      initializeJurisdictionDropdown();
+      initializeJurisdictionGrid();
+      initializeOojGrid(); 
+      initializeContactGrid();
       
-      console.log("Application initialized successfully");
+      logger.info("Application initialized successfully");
     } catch (error) {
-      console.error("Error initializing application:", error);
-    }
-  }
-
-  // Helper function for making GraphQL requests
-  async function makeGraphQLRequest(query, variables = {}) {
-    try {
-      console.log('Making GraphQL request with:', {
-        query: query,
-        variables: variables
-      });
-
-      const response = await fetch(graphqlEndpoint, {
-        method: 'POST',
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        },
-        body: JSON.stringify({
-          query,
-          variables
-        })
-      });
-
-      console.log('GraphQL response status:', response.status);
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const result = await response.json();
-      console.log('GraphQL raw response:', result);
-
-      if (result.errors) {
-        console.error('GraphQL response contains errors:', result.errors);
-        throw new Error(result.errors[0].message);
-      }
-
-      return result;
-    } catch (error) {
-      console.error('GraphQL request failed:', error);
-      throw error;
+      logger.error("Error initializing application:", error);
     }
   }
 
   // GraphQL fetch functions for each data type
   async function fetchOojInfections() {
-    const query = `
-      query GetOojInfections {
-        oOJInfections {
-          nodes {
-            databaseId
-            name
-          }
-        }
-      }
-    `;
-    
-    const result = await makeGraphQLRequest(query);
+    const result = await makeGraphQLRequest(FETCH_OOJ_INFECTIONS_QUERY);
     return result.data.oOJInfections.nodes.map(node => ({
       id: node.databaseId,
       name: node.name
@@ -138,18 +326,7 @@
   }
 
   async function fetchOojActivities() {
-    const query = `
-      query GetOojActivities {
-        iCCRActivities {
-          nodes {
-            databaseId
-            name
-          }
-        }
-      }
-    `;
-    
-    const result = await makeGraphQLRequest(query);
+    const result = await makeGraphQLRequest(FETCH_OOJ_ACTIVITIES_QUERY);
     return result.data.iCCRActivities.nodes.map(node => ({
       id: node.databaseId,
       name: node.name
@@ -157,18 +334,7 @@
   }
 
   async function fetchHivRoles() {
-    const query = `
-      query GetHivRoles {
-        hIVRoles {
-          nodes {
-            databaseId
-            name
-          }
-        }
-      }
-    `;
-    
-    const result = await makeGraphQLRequest(query);
+    const result = await makeGraphQLRequest(FETCH_HIV_ROLES_QUERY);
     return result.data.hIVRoles.nodes.map(node => ({
       id: node.databaseId,
       name: node.name
@@ -176,18 +342,7 @@
   }
 
   async function fetchStiRoles() {
-    const query = `
-      query GetStiRoles {
-        sTIRoles {
-          nodes {
-            databaseId
-            name
-          }
-        }
-      }
-    `;
-    
-    const result = await makeGraphQLRequest(query);
+    const result = await makeGraphQLRequest(FETCH_STI_ROLES_QUERY);
     return result.data.sTIRoles.nodes.map(node => ({
       id: node.databaseId,
       name: node.name
@@ -195,18 +350,7 @@
   }
 
   async function fetchMethodsOfTransmission() {
-    const query = `
-      query GetMethodsOfTransmission {
-        methodsOfTransmitting {
-          nodes {
-            databaseId
-            name
-          }
-        }
-      }
-    `;
-    
-    const result = await makeGraphQLRequest(query);
+    const result = await makeGraphQLRequest(FETCH_METHODS_OF_TRANSMISSION_QUERY);
     return result.data.methodsOfTransmitting.nodes.map(node => ({
       id: node.databaseId,
       name: node.name
@@ -214,45 +358,7 @@
   }
 
   async function fetchAllUsers() {
-    const query = `
-      query GetAllUsers {
-        users(first: 1000) {
-          nodes {
-            databaseId
-            firstName
-            lastName
-            email
-            name
-            stdContactDetails {
-              userJurisdiction {
-                nodes {
-                  databaseId
-                }
-              }
-              hivRole {
-                nodes {
-                  databaseId
-                }
-              }
-              stiRole {
-                nodes {
-                  databaseId
-                }
-              }
-              userPhone
-              userFax
-              notesStiHiv
-            }
-          }
-        }
-      }
-    `;
-    
-    const result = await makeGraphQLRequest(query);
-    
-    // Add debug logging to see what users are returned
-    console.log(`Fetched ${result.data.users.nodes.length} total users`);
-    
+    const result = await makeGraphQLRequest(FETCH_ALL_USERS_QUERY);
     return result.data.users.nodes.map(user => ({
       id: user.databaseId,
       name: user.name,
@@ -271,57 +377,7 @@
   }
 
   async function fetchAllJurisdictions() {
-    const query = `
-      query GetAllJurisdictions {
-        jurisdictions(first: 100) {
-          nodes {
-            databaseId
-            title
-            date
-            modified
-            jurisdictionDetails {
-              addressJurisdiction
-              agencyName
-              fipsCode
-              phoneJurisdiction
-            }
-            oojJurisdictionDetails {
-              oojDetails {
-                oojId
-                acceptAndInvestigate
-                acceptAndInvestigateLastDateOfExposure
-                confidentialPhone
-                dispositionsReturned
-                informationReturned
-                notes
-                oojInfection {
-                  nodes {
-                    databaseId
-                  }
-                }
-                oojActivity {
-                  nodes {
-                    databaseId
-                  }
-                }
-                pointOfContacts {
-                  nodes {
-                    databaseId
-                  }
-                }
-                methodOfTransmitting {
-                  nodes {
-                    databaseId
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    `;
-    
-    const result = await makeGraphQLRequest(query);
+    const result = await makeGraphQLRequest(FETCH_ALL_JURISDICTIONS_QUERY);
     return result.data.jurisdictions.nodes.map(jurisdiction => ({
       id: jurisdiction.databaseId,
       title: { rendered: jurisdiction.title },
@@ -350,7 +406,7 @@
 
   // Backward compatibility function for REST API calls
   function getJSONfromUrl(url) {
-    console.warn("getJSONfromUrl is deprecated. Please use GraphQL fetch functions instead.");
+    logger.warn("getJSONfromUrl is deprecated. Please use GraphQL fetch functions instead.");
     
     return new Promise((resolve, reject) => {
       // Extract the endpoint type from the URL to determine what GraphQL query to use
@@ -381,12 +437,303 @@
     });
   }
 
-  // Grid loading and initialization functions
-  async function loadJurisdictionGrid(selectedJurisdictionId) {
-    console.log("Loading jurisdiction grid for ID:", selectedJurisdictionId);
+  // Initialize the jurisdiction dropdown
+  function initializeJurisdictionDropdown() {
+    jurisdictionDropdown = $("#jurisdictionDropdown").kendoDropDownList({
+      dataTextField: "title",
+      dataValueField: "id",
+      dataSource: {
+        data: [{id: "ALL", title: "ALL"}].concat(
+          allJurisdictionList
+            .map((item) => ({
+              id: item.id,
+              title: item.title.rendered,
+            }))
+            .sort((a, b) => a.title.localeCompare(b.title))
+        ),
+      },
+      optionLabel: "Select a Jurisdiction...",
+      change: function(e) {
+        var selectedJurisdictionId = this.value();
+        logger.info("Jurisdiction selected:", selectedJurisdictionId);
+        
+        // Update all grids with the selected jurisdiction
+        updateJurisdictionGrid(selectedJurisdictionId);
+        updateOojGrid(selectedJurisdictionId);
+        updateContactGrid(selectedJurisdictionId);
+      },
+    }).data("kendoDropDownList");
+  }
 
+  // Initialize the jurisdiction grid
+  function initializeJurisdictionGrid() {
+    jurisdictionGrid = $("#jurisdictionGrid").kendoGrid({
+      dataSource: {
+        data: [],
+        schema: {
+          model: {
+            fields: {
+              title: {type: "string"},
+              fips_code: {type: "string"},
+              agency_name: {type: "string"},
+              address_jurisdiction: {type: "string"},
+              phone_jurisdiction: {type: "string"},
+              modified: {type: "date"},
+            },
+          },
+        },
+        sort: {field: "title", dir: "asc"},
+      },
+      columns: [
+        {field: "title", title: "Jurisdiction Name"},
+        {field: "fips_code", title: "FIPS Code"},
+        {field: "agency_name", title: "Agency Name"},
+        {field: "address_jurisdiction", title: "Agency Address"},
+        {field: "phone_jurisdiction", title: "Agency Phone"},
+        {
+          field: "modified",
+          title: "Last Updated",
+          template: function (dataItem) {
+            if (dataItem.modified === "0000-00-00T00:00:00") {
+              return "00/00/0000";
+            } else {
+              return kendo.toString(
+                kendo.parseDate(dataItem.modified),
+                "MM/dd/yyyy"
+              );
+            }
+          },
+        },
+      ],
+      sortable: true,
+      pageable: true,
+      height: 350,
+    }).data("kendoGrid");
+  }
+
+  // Initialize the OOJ grid
+  function initializeOojGrid() {
+    oojJurisdictionGrid = $("#oojJurisdictionGrid").kendoGrid({
+      dataSource: {
+        data: [],
+        schema: {
+          model: {
+            id: "ooj_id",
+            fields: {
+              ooj_id: {type: "number"},
+              jurisdictionName: {type: "string"},
+              ooj_infection: {type: "number"},
+              ooj_activity: {type: "object"},
+              accept_and_investigate_last_date_of_exposure: {type: "string"},
+              dispositions_returned: {type: "string"},
+              information_returned: {type: "string"},
+              accept_and_investigate: {type: "string"},
+              method_of_transmitting: { type: "object", defaultValue: null },
+              confidential_phone: {type: "string"},
+              point_of_contacts: {type: "object"},
+              notes: {type: "string"},
+            },
+          },
+        },
+      },
+      toolbar: ["excel"],
+      columns: [
+        {field: "jurisdictionName", title: "Jurisdiction"},
+        {
+          field: "ooj_infection",
+          title: "OOJ Infection",
+          template: function (dataItem) {
+            var infection = oojInfectionList.find(function (inf) {
+              return inf.id === dataItem.ooj_infection;
+            });
+            return infection ? infection.name : "N/A";
+          },
+        },
+        {
+          field: "ooj_activity",
+          title: "OOJ Activity",
+          template: function (dataItem) {
+            if (!dataItem.ooj_activity || dataItem.ooj_activity.length === 0) {
+              return "No activities";
+            }
+            var activities = dataItem.ooj_activity.map(function (activityId) {
+              var activity = oojActivityList.find(function (act) {
+                return act.id === activityId;
+              });
+              return activity ? activity.name : "N/A";
+            });
+            return activities.join(", ");
+          },
+        },
+        {
+          field: "accept_and_investigate_last_date_of_exposure",
+          title: "Last Date of Exposure",
+        },
+        {
+          field: "dispositions_returned",
+          title: "Dispositions Returned",
+        },
+        { field: "information_returned", title: "Information Returned" },
+        { field: "accept_and_investigate", title: "Accept and Investigate" },
+        {
+          field: "method_of_transmitting",
+          title: "Method of Transmitting",
+          template: function (dataItem) {
+            if (!dataItem.method_of_transmitting || dataItem.method_of_transmitting.length === 0) {
+              return "No Methods of Transmission";
+            }
+
+            var transmissions = dataItem.method_of_transmitting.map(function (transmissionId) {
+              var methodOfTransmission = methodsOfTransmissionList.find(function (method) {
+                return method.id === transmissionId;
+              });
+              return methodOfTransmission ? methodOfTransmission.name : "N/A";
+            });
+            return transmissions.join(", ");
+          }
+        },
+        {field: "confidential_phone", title: "Confidential Phone"},
+        {
+          field: "point_of_contacts",
+          title: "Point of Contact(s)",
+          template: function (dataItem) {
+            if (!dataItem.point_of_contacts || dataItem.point_of_contacts.length === 0) {
+              return "No contacts";
+            }
+
+            var contactNames = dataItem.point_of_contacts.map(function (contactId) {
+              var user = jurisdictionUsersList.find(function (user) {
+                return user.id === contactId;
+              });
+              return user ? user.name : "ID: " + contactId + " (Unknown)";
+            });
+
+            return contactNames.join(", ");
+          },
+        },
+        {field: "notes", title: "Notes"},
+      ],
+      sortable: true,
+      pageable: true,
+      height: 550,
+    }).data("kendoGrid");
+    
+    // Configure Excel export
+    oojJurisdictionGrid.bind("excelExport", function (e) {
+      var sheet = e.workbook.sheets[0];
+      for (var rowIndex = 1; rowIndex < sheet.rows.length; rowIndex++) {
+        var row = sheet.rows[rowIndex];
+        var dataItem = oojJurisdictionGrid.dataSource.at(rowIndex - 1);
+
+        // Custom handling for OOJ Infection
+        var infection = oojInfectionList.find(function (inf) {
+          return inf.id === dataItem.ooj_infection;
+        });
+        row.cells[1].value = infection ? infection.name : "N/A";
+
+        // Custom handling for OOJ Activity
+        var activities = dataItem.ooj_activity.map(function (activityId) {
+          var activity = oojActivityList.find(function (act) {
+            return act.id === activityId;
+          });
+          return activity ? activity.name : "N/A";
+        });
+        row.cells[2].value = activities.join(", ");
+
+        // Custom handling for Point of Contacts
+        var contactNames = dataItem.point_of_contacts.map(function (contactId) {
+          var user = jurisdictionUsersList.find(function (user) {
+            return user.id === contactId;
+          });
+          return user ? user.name : "ID: " + contactId + " (Unknown)";
+        });
+        row.cells[9].value = contactNames.join(", ");
+      }
+    });
+  }
+
+  // Initialize the contact grid
+  function initializeContactGrid() {
+    contactGrid = $("#contactGrid").kendoGrid({
+      dataSource: {
+        data: [],
+        schema: {
+          model: {
+            fields: {
+              "acf.acf_jurisdiction": {type: "number"},
+              "acf.hiv_role": {type: "object"},
+              "acf.sti_role": {type: "object"},
+              first_name: {type: "string"},
+              last_name: {type: "string"},
+              email: {type: "string"},
+              "acf.phone_user": {type: "string"},
+              "acf.fax_user": {type: "string"},
+              "acf.notes_sti_hiv": {type: "string"},
+            },
+          },
+        },
+      },
+      toolbar: ["excel"],
+      excel: {
+        fileName: "STD_Contact_Board_Export.xlsx",
+        filterable: true,
+        allPages: true,
+      },
+      columns: [
+        {
+          field: "acf.user_jurisdiction",
+          title: "Jurisdiction",
+          template: function (dataItem) {
+            return getJurisdictionName(dataItem.acf.user_jurisdiction);
+          },
+        },
+        {
+          field: "acf.hiv_role",
+          title: "HIV Role",
+          template: "#= formatRoles(data['acf.hiv_role'], hivRoleList) #",
+        },
+        {
+          field: "acf.sti_role",
+          title: "STI Role",
+          template: "#= formatRoles(data['acf.sti_role'], stiRoleList) #",
+        },
+        {field: "first_name", title: "First Name"},
+        {field: "last_name", title: "Last Name"},
+        {field: "email", title: "Email"},
+        {field: "acf.phone_user", title: "Phone"},
+        {field: "acf.fax_user", title: "Fax"},
+        {field: "acf.notes_sti_hiv", title: "Notes STI/HIV"},
+      ],
+      sortable: true,
+      pageable: true,
+      height: 350,
+    }).data("kendoGrid");
+    
+    // Configure Excel export
+    contactGrid.bind("excelExport", function (e) {
+      var sheet = e.workbook.sheets[0];
+      for (var rowIndex = 1; rowIndex < sheet.rows.length; rowIndex++) {
+        var row = sheet.rows[rowIndex];
+        var dataItem = contactGrid.dataSource.at(rowIndex - 1);
+
+        // Custom handling for jurisdiction
+        row.cells[0].value = getJurisdictionName(
+          dataItem.acf.user_jurisdiction
+        );
+
+        // Custom handling for HIV and STI roles
+        row.cells[1].value = formatRoles(dataItem.acf.hiv_role, hivRoleList);
+        row.cells[2].value = formatRoles(dataItem.acf.sti_role, stiRoleList);
+      }
+    });
+  }
+
+  // Update jurisdiction grid with selected jurisdiction
+  async function updateJurisdictionGrid(selectedJurisdictionId) {
+    logger.info("Updating jurisdiction grid for ID:", selectedJurisdictionId);
+    
     let gridData;
-
+    
     if (selectedJurisdictionId === "ALL") {
       gridData = [
         {
@@ -400,23 +747,7 @@
       ];
     } else {
       try {
-        const query = `
-          query GetJurisdiction($id: ID!) {
-            jurisdiction(id: $id, idType: DATABASE_ID) {
-              databaseId
-              title
-              modified
-              jurisdictionDetails {
-                fipsCode
-                agencyName
-                addressJurisdiction
-                phoneJurisdiction
-              }
-            }
-          }
-        `;
-        
-        const result = await makeGraphQLRequest(query, { id: selectedJurisdictionId });
+        const result = await makeGraphQLRequest(FETCH_JURISDICTION_QUERY, { id: selectedJurisdictionId });
         const jurisdiction = result.data.jurisdiction;
         
         gridData = [
@@ -430,7 +761,7 @@
           },
         ];
       } catch (error) {
-        console.error("Error fetching jurisdiction:", error);
+        logger.error("Error fetching jurisdiction:", error);
         gridData = [
           {
             title: "Error",
@@ -443,19 +774,17 @@
         ];
       }
     }
-
-    console.log("Setting grid data:", gridData);
+    
     jurisdictionGrid.dataSource.data(gridData);
   }
 
-  async function loadOojGrid(selectedJurisdictionId) {
-    console.log("Loading OOJ grid for ID:", selectedJurisdictionId);
-
+  // Update OOJ grid with selected jurisdiction
+  function updateOojGrid(selectedJurisdictionId) {
+    logger.info("Updating OOJ grid for ID:", selectedJurisdictionId);
+    
     let gridData = [];
-
+    
     if (selectedJurisdictionId === "ALL") {
-      console.log("Loading OOJ data for all jurisdictions");
-      
       // Use the already fetched allJurisdictionList
       allJurisdictionList.forEach((jurisdiction) => {
         if (jurisdiction.acf && Array.isArray(jurisdiction.acf.ooj_details)) {
@@ -485,478 +814,79 @@
           }));
         }
       } catch (error) {
-        console.error("Error loading OOJ data:", error);
+        logger.error("Error loading OOJ data:", error);
       }
     }
-
-    console.log("Setting OOJ grid data:", gridData);
-    initializeOojGrid(gridData);
+    
+    oojJurisdictionGrid.dataSource.data(gridData);
   }
 
+  // Update contact grid with selected jurisdiction
   async function updateContactGrid(selectedJurisdictionId) {
-    console.log("Updating Contact Grid for jurisdiction ID:", selectedJurisdictionId);
-
+    logger.info("Updating Contact Grid for jurisdiction ID:", selectedJurisdictionId);
+    
     if (!contactGrid || !contactGrid.dataSource) {
-      console.error("Contact Grid or its dataSource is not initialized");
+      logger.error("Contact Grid or its dataSource is not initialized");
       return;
     }
-
+    
     try {
       let users = [];
       
       if (selectedJurisdictionId === "ALL") {
-        // Get all users
-        const query = `
-          query GetAllUsers {
-            users(first: 1000) {
-              nodes {
-                databaseId
-                firstName
-                lastName
-                email
-                stdContactDetails {
-                  userJurisdiction {
-                    nodes {
-                      databaseId
-                    }
-                  }
-                  hivRole {
-                    nodes {
-                      databaseId
-                    }
-                  }
-                  stiRole {
-                    nodes {
-                      databaseId
-                    }
-                  }
-                  userPhone
-                  userFax
-                  notesStiHiv
-                }
-              }
-            }
-          }
-        `;
-        
-        const result = await makeGraphQLRequest(query);
-        users = result.data.users.nodes;
-        console.log(`Fetched ${users.length} total users from server`);
+        // Get all users from the already fetched list
+        users = jurisdictionUsersList;
       } else {
-        // Server-side filtering by jurisdiction
-        const query = `
-          query GetUsersByJurisdiction($jurisdictionId: Int!) {
-            users(where: { jurisdictionDatabaseId: $jurisdictionId }) {
-              nodes {
-                databaseId
-                firstName
-                lastName
-                email
-                stdContactDetails {
-                  userJurisdiction {
-                    nodes {
-                      databaseId
-                    }
-                  }
-                  hivRole {
-                    nodes {
-                      databaseId
-                    }
-                  }
-                  stiRole {
-                    nodes {
-                      databaseId
-                    }
-                  }
-                  userPhone
-                  userFax
-                  notesStiHiv
-                }
-              }
-            }
-          }
-        `;
-        
+        // Filter users by jurisdiction
+        const query = FETCH_USERS_BY_JURISDICTION_QUERY;
         const result = await makeGraphQLRequest(query, { 
           jurisdictionId: parseInt(selectedJurisdictionId, 10) 
         });
         
-        users = result.data.users.nodes;
-        console.log(`Fetched ${users.length} users for jurisdiction ${selectedJurisdictionId} from server`);
+        users = result.data.users.nodes.map(user => ({
+          id: user.databaseId,
+          first_name: user.firstName || '',
+          last_name: user.lastName || '',
+          email: user.email || '',
+          acf: {
+            user_jurisdiction: user.stdContactDetails?.userJurisdiction?.nodes?.[0]?.databaseId || null,
+            hiv_role: user.stdContactDetails?.hivRole?.nodes?.map(role => role.databaseId) || [],
+            sti_role: user.stdContactDetails?.stiRole?.nodes?.map(role => role.databaseId) || [],
+            phone_user: user.stdContactDetails?.userPhone || '',
+            fax_user: user.stdContactDetails?.userFax || '',
+            notes_sti_hiv: user.stdContactDetails?.notesStiHiv || ''
+          }
+        }));
       }
       
-      // Transform to grid format
-      const contactData = users.map(user => ({
-        first_name: user.firstName || '',
-        last_name: user.lastName || '',
-        email: user.email || '',
-        acf: {
-          user_jurisdiction: user.stdContactDetails?.userJurisdiction?.nodes?.[0]?.databaseId || null,
-          hiv_role: user.stdContactDetails?.hivRole?.nodes?.map(role => role.databaseId) || [],
-          sti_role: user.stdContactDetails?.stiRole?.nodes?.map(role => role.databaseId) || [],
-          phone_user: user.stdContactDetails?.userPhone || '',
-          fax_user: user.stdContactDetails?.userFax || '',
-          notes_sti_hiv: user.stdContactDetails?.notesStiHiv || ''
-        }
-      }));
-
-      contactGrid.dataSource.data(contactData);
+      contactGrid.dataSource.data(users);
       
     } catch (error) {
-      console.error("Error fetching users:", error);
+      logger.error("Error fetching users:", error);
       contactGrid.dataSource.data([]);
     }
   }
 
-  // Generate the dropdown for selecting a jurisdiction from the list of jurisdictions
-  function GenerateJurisdictionDropdown() {
-    jurisdictionDropdown = $("#jurisdictionDropdown")
-      .kendoDropDownList({
-        dataTextField: "title",
-        dataValueField: "id",
-        dataSource: {
-          data: [{id: "ALL", title: "ALL"}].concat(
-            allJurisdictionList
-              .map((item) => ({
-                id: item.id,
-                title: item.title.rendered,
-              }))
-              .sort((a, b) => a.title.localeCompare(b.title))
-          ),
-        },
-        optionLabel: "Select a Jurisdiction...",
-        change: async function (e) {
-          var selectedJurisdictionId = this.value();
-          console.log("Jurisdiction selected:", selectedJurisdictionId);
-
-          loadJurisdictionGrid(selectedJurisdictionId);
-          loadOojGrid(selectedJurisdictionId);
-          await updateContactGrid(selectedJurisdictionId);
-        },
-      })
-      .data("kendoDropDownList");
-  }
-
-  function initializeJurisdictionGrid() {
-    jurisdictionGrid = $("#jurisdictionGrid")
-      .kendoGrid({
-        dataSource: {
-          data: [],
-          schema: {
-            model: {
-              fields: {
-                title: {type: "string"},
-                fips_code: {type: "string"},
-                agency_name: {type: "string"},
-                address_jurisdiction: {type: "string"},
-                phone_jurisdiction: {type: "string"},
-                modified: {type: "date"},
-              },
-            },
-          },
-          sort: {field: "title", dir: "asc"},
-        },
-        columns: [
-          {field: "title", title: "Jurisdiction Name"},
-          {field: "fips_code", title: "FIPS Code"},
-          {field: "agency_name", title: "Agency Name"},
-          {field: "address_jurisdiction", title: "Agency Address"},
-          {field: "phone_jurisdiction", title: "Agency Phone"},
-          {
-            field: "modified",
-            title: "Last Updated",
-            template: function (dataItem) {
-              if (dataItem.modified === "0000-00-00T00:00:00") {
-                return "00/00/0000";
-              } else {
-                return kendo.toString(
-                  kendo.parseDate(dataItem.modified),
-                  "MM/dd/yyyy"
-                );
-              }
-            },
-          },
-        ],
-        sortable: true,
-        pageable: true,
-        height: 350,
-      })
-      .data("kendoGrid");
-  }
-
-  function initializeOojGrid(initialData = []) {
-    console.log("Initializing/Updating OOJ Grid with details:", initialData);
-    var oojDetailsDataSource = new kendo.data.DataSource({
-      data: initialData,
-      schema: {
-        model: {
-          id: "ooj_id",
-          fields: {
-            ooj_id: {type: "number"},
-            jurisdictionName: {type: "string"},
-            ooj_infection: {type: "number"},
-            ooj_activity: {type: "object"},
-            accept_and_investigate_last_date_of_exposure: {type: "string"},
-            dispositions_returned: {type: "string"},
-            information_returned: {type: "string"},
-            accept_and_investigate: {type: "string"},
-            method_of_transmitting: { type: "object", defaultValue: null },
-            confidential_phone: {type: "string"},
-            point_of_contacts: {type: "object"},
-            notes: {type: "string"},
-          },
-        },
-      },
-    });
-
-    var grid = $("#oojJurisdictionGrid").data("kendoGrid");
-
-    if (grid) {
-      // If grid already exists, update its dataSource
-      grid.setDataSource(oojDetailsDataSource);
-    } else {
-      // If grid doesn't exist, create it
-      $("#oojJurisdictionGrid").kendoGrid({
-        dataSource: oojDetailsDataSource,
-        toolbar: ["excel"],
-        columns: [
-          {field: "jurisdictionName", title: "Jurisdiction"},
-          {
-            field: "ooj_infection",
-            title: "OOJ Infection",
-            template: function (dataItem) {
-              var infection = oojInfectionList.find(function (inf) {
-                return inf.id === dataItem.ooj_infection;
-              });
-              return infection ? infection.name : "N/A";
-            },
-          },
-          {
-            field: "ooj_activity",
-            title: "OOJ Activity",
-            template: function (dataItem) {
-              if (
-                !dataItem.ooj_activity ||
-                dataItem.ooj_activity.length === 0
-              ) {
-                return "No activities";
-              }
-              var activities = dataItem.ooj_activity.map(function (activityId) {
-                var activity = oojActivityList.find(function (act) {
-                  return act.id === activityId;
-                });
-                return activity ? activity.name : "N/A";
-              });
-              return activities.join(", ");
-            },
-          },
-            {
-          field: "accept_and_investigate_last_date_of_exposure",
-          title: "Last Date of Exposure",
-        },
-        {
-          field: "dispositions_returned",
-          title: "Dispositions Returned",
-        },
-        { field: "information_returned", title: "Information Returned" },
-        { field: "accept_and_investigate", title: "Accept and Investigate" },
-                {
-    field: "method_of_transmitting",
-    title: "Method of Transmitting",
-    template: function (dataItem) {
-        if (!dataItem.method_of_transmitting || dataItem.method_of_transmitting.length === 0) {
-            return "No Methods of Transmission";
-        }
-
-        var transmissions = dataItem.method_of_transmitting.map(function (transmissionId) {
-            var methodOfTransmission = methodsOfTransmissionList.find(function (method) {
-                return method.id === transmissionId;
-            });
-            return methodOfTransmission ? methodOfTransmission.name : "N/A";
-        });
-        return transmissions.join(", ");
-    }
-},
-          {field: "confidential_phone", title: "Confidential Phone"},
-          {
-            field: "point_of_contacts",
-            title: "Point of Contact(s)",
-            template: function (dataItem) {
-              // Check if there are any point of contacts
-              if (
-                !dataItem.point_of_contacts ||
-                dataItem.point_of_contacts.length === 0
-              ) {
-                return "No contacts";
-              }
-
-              // Map the IDs to names using jurisdictionUsersList
-              var contactNames = dataItem.point_of_contacts.map(function (
-                contactId
-              ) {
-                var user = jurisdictionUsersList.find(function (user) {
-                  return user.id === contactId;
-                });
-                return user ? user.name : "ID: " + contactId + " (Unknown)";
-              });
-
-              return contactNames.join(", ");
-            },
-          },
-          {field: "notes", title: "Notes"},
-        ],
-        sortable: true,
-        pageable: true,
-        height: 550,
-      });
-    }
-
-    var grid = $("#oojJurisdictionGrid").data("kendoGrid");
-    grid.bind("excelExport", function (e) {
-      var sheet = e.workbook.sheets[0];
-      for (var rowIndex = 1; rowIndex < sheet.rows.length; rowIndex++) {
-        var row = sheet.rows[rowIndex];
-        var dataItem = grid.dataSource.at(rowIndex - 1);
-
-        // Custom handling for OOJ Infection
-        var infection = oojInfectionList.find(function (inf) {
-          return inf.id === dataItem.ooj_infection;
-        });
-        row.cells[1].value = infection ? infection.name : "N/A";
-
-        // Custom handling for OOJ Activity
-        var activities = dataItem.ooj_activity.map(function (activityId) {
-          var activity = oojActivityList.find(function (act) {
-            return act.id === activityId;
-          });
-          return activity ? activity.name : "N/A";
-        });
-        row.cells[2].value = activities.join(", ");
-
-        // Custom handling for Point of Contacts
-        var contactNames = dataItem.point_of_contacts.map(function (contactId) {
-          var user = jurisdictionUsersList.find(function (user) {
-            return user.id === contactId;
-          });
-          return user ? user.name : "ID: " + contactId + " (Unknown)";
-        });
-        row.cells[9].value = contactNames.join(", ");
-      }
-    });
-
-    console.log("OOJ Grid initialized/updated successfully");
-  }
-
-  function initializeContactGrid() {
-    console.log("Initializing empty Contact Grid");
-    contactGrid = $("#contactGrid")
-      .kendoGrid({
-        dataSource: new kendo.data.DataSource({
-          data: [], // Start with an empty array
-          schema: {
-            model: {
-              fields: {
-                "acf.acf_jurisdiction": {type: "number"},
-                "acf.hiv_role": {type: "object"},
-                "acf.sti_role": {type: "object"},
-                first_name: {type: "string"},
-                last_name: {type: "string"},
-                email: {type: "string"},
-                "acf.phone_user": {type: "string"},
-                "acf.fax_user": {type: "string"},
-                "acf.notes_sti_hiv": {type: "string"},
-              },
-            },
-          },
-        }),
-        toolbar: ["excel"], // Add Excel export button to toolbar
-        excel: {
-          fileName: "STD_Contact_Board_Export.xlsx",
-          filterable: true,
-          allPages: true,
-        },
-        columns: [
-          {
-            field: "acf.user_jurisdiction",
-            title: "Jurisdiction",
-            template: function (dataItem) {
-              return getJurisdictionName(dataItem.acf.user_jurisdiction);
-            },
-          },
-          {
-            field: "acf.hiv_role",
-            title: "HIV Role",
-            template: "#= formatRoles(data['acf.hiv_role'], hivRoleList) #",
-          },
-          {
-            field: "acf.sti_role",
-            title: "STI Role",
-            template: "#= formatRoles(data['acf.sti_role'], stiRoleList) #",
-          },
-          {field: "first_name", title: "First Name"},
-          {field: "last_name", title: "Last Name"},
-          {field: "email", title: "Email"},
-          {field: "acf.phone_user", title: "Phone"},
-          {field: "acf.fax_user", title: "Fax"},
-          {field: "acf.notes_sti_hiv", title: "Notes STI/HIV"},
-        ],
-        sortable: true,
-        pageable: true,
-        height: 350,
-        dataBound: function () {
-          console.log("Contact Grid data bound");
-        },
-      })
-      .data("kendoGrid");
-
-    contactGrid.bind("excelExport", function (e) {
-      var sheet = e.workbook.sheets[0];
-      for (var rowIndex = 1; rowIndex < sheet.rows.length; rowIndex++) {
-        var row = sheet.rows[rowIndex];
-        var dataItem = contactGrid.dataSource.at(rowIndex - 1);
-
-        // Custom handling for jurisdiction
-        row.cells[0].value = getJurisdictionName(
-          dataItem.acf.user_jurisdiction
-        );
-
-        // Custom handling for HIV and STI roles
-        row.cells[1].value = formatRoles(dataItem.acf.hiv_role, hivRoleList);
-        row.cells[2].value = formatRoles(dataItem.acf.sti_role, stiRoleList);
-      }
-    });
-
-    console.log("Empty Contact Grid initialized", contactGrid);
-  }
-
   // Helper functions
   function getJurisdictionName(jurisdictionId) {
-    console.log("Getting jurisdiction name for ID:", jurisdictionId);
     if (!jurisdictionId) {
-      console.log("No jurisdiction ID provided");
       return "N/A";
     }
     var jurisdiction = allJurisdictionList.find(
       (j) => j.id === parseInt(jurisdictionId, 10)
     );
-    var name = jurisdiction ? jurisdiction.title.rendered : "Unknown";
-    console.log("Jurisdiction name:", name);
-    return name;
+    return jurisdiction ? jurisdiction.title.rendered : "Unknown";
   }
 
   function formatRoles(roleIds, roleList) {
-    console.log("Formatting roles", roleIds);
     if (!roleIds || roleIds.length === 0) {
-      console.log("No roles assigned");
       return "No role assigned";
     }
-    var formattedRoles = roleIds
+    return roleIds
       .map((id) => {
         var role = roleList.find((r) => r.id === id);
         return role ? role.name : "Unknown Role";
       })
       .join(", ");
-    console.log("Formatted roles:", formattedRoles);
-    return formattedRoles;
   }
 </script>

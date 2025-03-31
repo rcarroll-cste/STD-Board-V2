@@ -373,8 +373,6 @@ add_action( 'acf/include_fields', function() {
 			'multiple' => 0,
 			'bidirectional_target' => array(
 			),
-			'min' => '',
-			'max' => '',
 		),
 		array(
 			'key' => 'field_6600858197e94',
@@ -401,8 +399,6 @@ add_action( 'acf/include_fields', function() {
 			'multiple' => 0,
 			'bidirectional_target' => array(
 			),
-			'min' => '',
-			'max' => '',
 		),
 		array(
 			'key' => 'field_6600965b7b847',
@@ -512,13 +508,6 @@ add_action( 'acf/include_fields', function() {
 			'ui' => 1,
 			'bidirectional_target' => array(
 			),
-			'save_custom' => 0,
-			'save_post_type' => '',
-			'save_post_status' => '',
-			'acfe_add_post' => 0,
-			'acfe_edit_post' => 0,
-			'min' => '',
-			'max' => '',
 		),
 	),
 	'location' => array(
