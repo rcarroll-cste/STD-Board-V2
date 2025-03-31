@@ -9,6 +9,52 @@
 
 // Main GraphQL types registration hook
 add_action('graphql_register_types', function() {
+    
+    // Register OOJDetailError type for error handling
+    register_graphql_object_type('OOJDetailError', [
+        'description' => __('Error information returned by OOJ Detail mutations', 'your-textdomain'),
+        'fields' => [
+            'field' => [
+                'type' => 'String',
+                'description' => __('The field that caused the error', 'your-textdomain'),
+            ],
+            'message' => [
+                'type' => 'String',
+                'description' => __('The error message', 'your-textdomain'),
+            ],
+        ],
+    ]);
+    
+    // Register fields for CreateOOJDetailInput to ensure they're properly exposed in the schema
+    register_graphql_field('CreateOOJDetailInput', 'jurisdictionSelection', [
+        'type' => 'Int',
+        'description' => __('The jurisdiction selection (std_jurisdiction post ID)', 'your-textdomain'),
+    ]);
+    
+    register_graphql_field('CreateOOJDetailInput', 'lastDateOfExposure', [
+        'type' => 'String',
+        'description' => __('Last date of exposure', 'your-textdomain'),
+    ]);
+    
+    register_graphql_field('CreateOOJDetailInput', 'dispositionsReturned', [
+        'type' => 'String',
+        'description' => __('Dispositions returned', 'your-textdomain'),
+    ]);
+    
+    register_graphql_field('CreateOOJDetailInput', 'acceptAndInvestigate', [
+        'type' => 'String',
+        'description' => __('Accept and investigate', 'your-textdomain'),
+    ]);
+    
+    register_graphql_field('CreateOOJDetailInput', 'notes', [
+        'type' => 'String',
+        'description' => __('Notes for this OOJ detail', 'your-textdomain'),
+    ]);
+    
+    register_graphql_field('CreateOOJDetailInput', 'pointOfContacts', [
+        'type' => ['list_of' => 'Int'],
+        'description' => __('Point of contacts user IDs', 'your-textdomain'),
+    ]);
 
     /*********************************************************************************
      * JURISDICTION MUTATIONS
@@ -500,7 +546,7 @@ register_graphql_mutation('updateUserStdContact', [
             ],
         ],
         'outputFields' => [
-            'oojDetail' => [
+            'oOJDetail' => [
                 'type' => 'OOJDetail',
                 'description' => __('The created OOJ Detail', 'your-textdomain'),
                 'resolve' => function($payload, $args, $context, $info) {
@@ -508,6 +554,20 @@ register_graphql_mutation('updateUserStdContact', [
                         return get_post($payload['id']);
                     }
                     return null;
+                }
+            ],
+            'errors' => [
+                'type' => ['list_of' => 'OOJDetailError'],
+                'description' => __('Errors encountered during the mutation', 'your-textdomain'),
+                'resolve' => function($payload) {
+                    return isset($payload['errors']) ? $payload['errors'] : null;
+                }
+            ],
+            'success' => [
+                'type' => 'Boolean',
+                'description' => __('Whether the mutation was successful', 'your-textdomain'),
+                'resolve' => function($payload) {
+                    return isset($payload['success']) ? $payload['success'] : false;
                 }
             ],
         ],
@@ -527,19 +587,75 @@ register_graphql_mutation('updateUserStdContact', [
             
             // Set taxonomies and ACF fields
             if (!empty($input['oOJInfections'])) {
-                wp_set_object_terms($post_id, [$input['oOJInfections']], 'acf-ooj-infection');
+                // Handle both simple value and complex object formats
+                if (is_array($input['oOJInfections']) && isset($input['oOJInfections']['nodes'])) {
+                    // Extract IDs from nodes array
+                    $infection_ids = array_map(function($node) {
+                        return isset($node['id']) ? $node['id'] : 0;
+                    }, $input['oOJInfections']['nodes']);
+                    
+                    $infection_ids = array_filter($infection_ids);
+                    if (!empty($infection_ids)) {
+                        wp_set_object_terms($post_id, $infection_ids, 'acf-ooj-infection');
+                    }
+                } else {
+                    // Handle simple value (backward compatibility)
+                    wp_set_object_terms($post_id, [$input['oOJInfections']], 'acf-ooj-infection');
+                }
             }
             
             if (!empty($input['oOJActivities'])) {
-                wp_set_object_terms($post_id, $input['oOJActivities'], 'acf-ooj-activity');
+                // Handle both simple value and complex object formats
+                if (is_array($input['oOJActivities']) && isset($input['oOJActivities']['nodes'])) {
+                    // Extract IDs from nodes array
+                    $activity_ids = array_map(function($node) {
+                        return isset($node['id']) ? $node['id'] : 0;
+                    }, $input['oOJActivities']['nodes']);
+                    
+                    $activity_ids = array_filter($activity_ids);
+                    if (!empty($activity_ids)) {
+                        wp_set_object_terms($post_id, $activity_ids, 'acf-ooj-activity');
+                    }
+                } else {
+                    // Handle simple array (backward compatibility)
+                    wp_set_object_terms($post_id, $input['oOJActivities'], 'acf-ooj-activity');
+                }
             }
             
             if (!empty($input['methodsOfTransmitting'])) {
-                wp_set_object_terms($post_id, $input['methodsOfTransmitting'], 'iccr_method-of-transmitting');
+                // Handle both simple value and complex object formats
+                if (is_array($input['methodsOfTransmitting']) && isset($input['methodsOfTransmitting']['nodes'])) {
+                    // Extract IDs from nodes array
+                    $method_ids = array_map(function($node) {
+                        return isset($node['id']) ? $node['id'] : 0;
+                    }, $input['methodsOfTransmitting']['nodes']);
+                    
+                    $method_ids = array_filter($method_ids);
+                    if (!empty($method_ids)) {
+                        wp_set_object_terms($post_id, $method_ids, 'iccr_method-of-transmitting');
+                    }
+                } else {
+                    // Handle simple array (backward compatibility)
+                    wp_set_object_terms($post_id, $input['methodsOfTransmitting'], 'iccr_method-of-transmitting');
+                }
             }
             
             if (!empty($input['acceptableForPiis'])) {
-                wp_set_object_terms($post_id, $input['acceptableForPiis'], 'acceptable-for-pii');
+                // Handle both simple value and complex object formats
+                if (is_array($input['acceptableForPiis']) && isset($input['acceptableForPiis']['nodes'])) {
+                    // Extract IDs from nodes array
+                    $pii_ids = array_map(function($node) {
+                        return isset($node['id']) ? $node['id'] : 0;
+                    }, $input['acceptableForPiis']['nodes']);
+                    
+                    $pii_ids = array_filter($pii_ids);
+                    if (!empty($pii_ids)) {
+                        wp_set_object_terms($post_id, $pii_ids, 'acceptable-for-pii');
+                    }
+                } else {
+                    // Handle simple array (backward compatibility)
+                    wp_set_object_terms($post_id, $input['acceptableForPiis'], 'acceptable-for-pii');
+                }
             }
             
             // Update ACF fields
@@ -569,6 +685,8 @@ register_graphql_mutation('updateUserStdContact', [
             
             return [
                 'id' => $post_id,
+                'success' => true,
+                'errors' => null,
             ];
         }
     ]);
@@ -745,6 +863,118 @@ register_graphql_mutation('updateUserStdContact', [
     register_graphql_field('RootQueryToOOJDetailConnectionWhereArgs', 'jurisdictionId', [
         'type' => 'Int',
         'description' => __('Filter OOJ Details by jurisdiction ID', 'your-textdomain'),
+    ]);
+    
+    // Register a simpler mutation for creating OOJ Details
+    register_graphql_mutation('simpleCreateOOJDetail', [
+        'inputFields' => [
+            'title' => ['type' => 'String'],
+            'status' => ['type' => 'PostStatusEnum'],
+            'date' => ['type' => 'String'],
+            'jurisdictionSelection' => ['type' => 'Int'],
+            'lastDateOfExposure' => ['type' => 'String'],
+            'dispositionsReturned' => ['type' => 'String'],
+            'acceptAndInvestigate' => ['type' => 'String'],
+            'notes' => ['type' => 'String'],
+            'pointOfContacts' => ['type' => ['list_of' => 'Int']],
+            'oOJInfections' => ['type' => 'Int'],
+            'oOJActivities' => ['type' => ['list_of' => 'Int']],
+            'methodsOfTransmitting' => ['type' => ['list_of' => 'Int']],
+            'acceptableForPiis' => ['type' => ['list_of' => 'Int']]
+        ],
+        'outputFields' => [
+            'oojDetail' => [
+                'type' => 'OOJDetail',
+                'description' => __('The created OOJ Detail', 'your-textdomain'),
+                'resolve' => function($payload, $args, $context, $info) {
+                    if (!empty($payload['id'])) {
+                        return get_post($payload['id']);
+                    }
+                    return null;
+                }
+            ],
+            'errors' => [
+                'type' => ['list_of' => 'OOJDetailError'],
+                'description' => __('Errors encountered during the mutation', 'your-textdomain'),
+                'resolve' => function($payload) {
+                    return isset($payload['errors']) ? $payload['errors'] : null;
+                }
+            ],
+            'success' => [
+                'type' => 'Boolean',
+                'description' => __('Whether the mutation was successful', 'your-textdomain'),
+                'resolve' => function($payload) {
+                    return isset($payload['success']) ? $payload['success'] : false;
+                }
+            ],
+        ],
+        'mutateAndGetPayload' => function($input, $context, $info) {
+            // Create the OOJ Detail post
+            $post_args = [
+                'post_type' => 'ooj-detail',
+                'post_title' => !empty($input['title']) ? $input['title'] : 'OOJ Detail',
+                'post_status' => !empty($input['status']) ? $input['status'] : 'publish',
+            ];
+            
+            if (!empty($input['date'])) {
+                $post_args['post_date'] = $input['date'];
+                $post_args['post_date_gmt'] = get_gmt_from_date($input['date']);
+            }
+            
+            $post_id = wp_insert_post($post_args);
+            
+            if (is_wp_error($post_id)) {
+                throw new \GraphQL\Error\UserError($post_id->get_error_message());
+            }
+            
+            // Set taxonomies and ACF fields
+            if (!empty($input['oOJInfections'])) {
+                wp_set_object_terms($post_id, [$input['oOJInfections']], 'acf-ooj-infection');
+            }
+            
+            if (!empty($input['oOJActivities'])) {
+                wp_set_object_terms($post_id, $input['oOJActivities'], 'acf-ooj-activity');
+            }
+            
+            if (!empty($input['methodsOfTransmitting'])) {
+                wp_set_object_terms($post_id, $input['methodsOfTransmitting'], 'iccr_method-of-transmitting');
+            }
+            
+            if (!empty($input['acceptableForPiis'])) {
+                wp_set_object_terms($post_id, $input['acceptableForPiis'], 'acceptable-for-pii');
+            }
+            
+            // Update ACF fields
+            if (isset($input['jurisdictionSelection'])) {
+                update_field('jurisdiction_selection', $input['jurisdictionSelection'], $post_id);
+            }
+            
+            if (isset($input['lastDateOfExposure'])) {
+                update_field('last_date_of_exposure', $input['lastDateOfExposure'], $post_id);
+            }
+            
+            if (isset($input['dispositionsReturned'])) {
+                update_field('dispositions_returned', $input['dispositionsReturned'], $post_id);
+            }
+            
+            if (isset($input['acceptAndInvestigate'])) {
+                update_field('accept_and_investigate', $input['acceptAndInvestigate'], $post_id);
+            }
+            
+            if (isset($input['notes'])) {
+                update_field('notes', $input['notes'], $post_id);
+            }
+            
+            if (isset($input['pointOfContacts'])) {
+                update_field('point_of_contacts', $input['pointOfContacts'], $post_id);
+            }
+            
+            return [
+                'id' => $post_id,
+                'success' => true,
+                'errors' => null,
+            ];
+        }
     ]);
     
     register_graphql_mutation('deleteOOJDetail', [
