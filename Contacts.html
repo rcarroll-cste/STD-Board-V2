@@ -20,7 +20,7 @@
 
   const FETCH_OOJ_ACTIVITIES_QUERY = `
     query GetOojActivities {
-      iCCRActivities {
+      oOJActivities {
         nodes {
           databaseId
           name
@@ -142,36 +142,68 @@
             agencyName
             fipsCode
             phoneJurisdiction
+            faxJurisdiction
           }
-          oojJurisdictionDetails {
-            oojDetails {
-              oojId
-              acceptAndInvestigate
-              acceptAndInvestigateLastDateOfExposure
-              confidentialPhone
-              dispositionsReturned
-              informationReturned
-              notes
-              oojInfection {
-                nodes {
-                  databaseId
-                }
+        }
+      }
+    }
+  `;
+
+  const READ_OOJ_DETAILS_QUERY = `
+    query GetOOJDetailsByJurisdiction($jurisdictionId: Int!) {
+      oOJDetails(where: {jurisdictionId: $jurisdictionId}) {
+        nodes {
+          id
+          databaseId
+          title
+          date
+          oojDetailsFields {
+            jurisdictionSelection {
+              nodes {
+                databaseId
+                id
               }
-              oojActivity {
-                nodes {
-                  databaseId
-                }
+            }
+            lastDateOfExposure
+            dispositionsReturned
+            acceptAndInvestigate
+            notes
+            pointOfContacts {
+              nodes {
+                id
+                databaseId
+                firstName
+                lastName
+                email
               }
-              pointOfContacts {
-                nodes {
-                  databaseId
-                }
-              }
-              methodOfTransmitting {
-                nodes {
-                  databaseId
-                }
-              }
+            }
+          }
+          oOJInfections {
+            nodes {
+              id
+              databaseId
+              name
+            }
+          }
+          oOJActivities {
+            nodes {
+              id
+              databaseId
+              name
+            }
+          }
+          methodsOfTransmitting {
+            nodes {
+              id
+              databaseId
+              name
+            }
+          }
+          acceptableForPiis {
+            nodes {
+              id
+              databaseId
+              name
             }
           }
         }
@@ -327,7 +359,7 @@
 
   async function fetchOojActivities() {
     const result = await makeGraphQLRequest(FETCH_OOJ_ACTIVITIES_QUERY);
-    return result.data.iCCRActivities.nodes.map(node => ({
+    return result.data.oOJActivities.nodes.map(node => ({
       id: node.databaseId,
       name: node.name
     }));
@@ -377,7 +409,9 @@
   }
 
   async function fetchAllJurisdictions() {
+    // Just get the jurisdictions without OOJ details
     const result = await makeGraphQLRequest(FETCH_ALL_JURISDICTIONS_QUERY);
+    
     return result.data.jurisdictions.nodes.map(jurisdiction => ({
       id: jurisdiction.databaseId,
       title: { rendered: jurisdiction.title },
@@ -387,21 +421,36 @@
         agency_name: jurisdiction.jurisdictionDetails?.agencyName || '',
         address_jurisdiction: jurisdiction.jurisdictionDetails?.addressJurisdiction || '',
         phone_jurisdiction: jurisdiction.jurisdictionDetails?.phoneJurisdiction || '',
-        ooj_details: (jurisdiction.oojJurisdictionDetails?.oojDetails || []).map(detail => ({
-          ooj_id: detail.oojId,
-          ooj_infection: detail.oojInfection?.nodes?.[0]?.databaseId || null,
-          ooj_activity: detail.oojActivity?.nodes?.map(node => node.databaseId) || [],
-          accept_and_investigate_last_date_of_exposure: detail.acceptAndInvestigateLastDateOfExposure || '',
-          dispositions_returned: detail.dispositionsReturned || '',
-          information_returned: detail.informationReturned || '',
-          accept_and_investigate: detail.acceptAndInvestigate || '',
-          method_of_transmitting: detail.methodOfTransmitting?.nodes?.map(node => node.databaseId) || [],
-          confidential_phone: detail.confidentialPhone || '',
-          point_of_contacts: detail.pointOfContacts?.nodes?.map(node => node.databaseId) || [],
-          notes: detail.notes || ''
-        }))
+        ooj_details: [] // Empty placeholder - will be loaded on demand
       }
     }));
+  }
+
+  // Fetch OOJ details for a specific jurisdiction
+  async function fetchOojDetailsForJurisdiction(jurisdictionId) {
+    try {
+      const result = await makeGraphQLRequest(READ_OOJ_DETAILS_QUERY, {
+        jurisdictionId: parseInt(jurisdictionId, 10)
+      });
+      
+      if (result.data && result.data.oOJDetails && result.data.oOJDetails.nodes) {
+        return result.data.oOJDetails.nodes.map(node => ({
+          ooj_id: node.databaseId,
+          ooj_infection: node.oOJInfections?.nodes?.[0]?.databaseId || null,
+          ooj_activity: node.oOJActivities?.nodes?.map(activity => activity.databaseId) || [],
+          accept_and_investigate_last_date_of_exposure: node.oojDetailsFields?.lastDateOfExposure || '',
+          dispositions_returned: node.oojDetailsFields?.dispositionsReturned || '',
+          accept_and_investigate: node.oojDetailsFields?.acceptAndInvestigate || '',
+          method_of_transmitting: node.methodsOfTransmitting?.nodes?.map(method => method.databaseId) || [],
+          point_of_contacts: node.oojDetailsFields?.pointOfContacts?.nodes?.map(contact => contact.databaseId) || [],
+          notes: node.oojDetailsFields?.notes || ''
+        }));
+      }
+      return [];
+    } catch (error) {
+      logger.error(`Error fetching OOJ details for jurisdiction ${jurisdictionId}:`, error);
+      return [];
+    }
   }
 
   // Backward compatibility function for REST API calls
@@ -779,45 +828,68 @@
   }
 
   // Update OOJ grid with selected jurisdiction
-  function updateOojGrid(selectedJurisdictionId) {
+  async function updateOojGrid(selectedJurisdictionId) {
     logger.info("Updating OOJ grid for ID:", selectedJurisdictionId);
     
     let gridData = [];
     
     if (selectedJurisdictionId === "ALL") {
-      // Use the already fetched allJurisdictionList
-      allJurisdictionList.forEach((jurisdiction) => {
-        if (jurisdiction.acf && Array.isArray(jurisdiction.acf.ooj_details)) {
-          const jurisdictionOojData = jurisdiction.acf.ooj_details.map(
-            (oojDetail) => ({
-              jurisdictionName: jurisdiction.title.rendered,
-              ...oojDetail,
-            })
-          );
+      // For ALL, we'll load OOJ details for each jurisdiction on-demand
+      // This is a more expensive operation, so we'll do it only when specifically requested
+      oojJurisdictionGrid.dataSource.data([]);
+      
+      // Display loading indicator
+      oojJurisdictionGrid.showLoading();
+      
+      try {
+        for (const jurisdiction of allJurisdictionList) {
+          // Fetch OOJ details for this jurisdiction
+          const oojDetails = await fetchOojDetailsForJurisdiction(jurisdiction.id);
+          
+          // Map the details to the grid format
+          const jurisdictionOojData = oojDetails.map(oojDetail => ({
+            jurisdictionName: jurisdiction.title.rendered,
+            ...oojDetail
+          }));
+          
+          // Add to our result set
           gridData = gridData.concat(jurisdictionOojData);
         }
-      });
+      } catch (error) {
+        logger.error("Error loading ALL OOJ data:", error);
+      } finally {
+        oojJurisdictionGrid.hideLoading();
+      }
     } else {
+      // For a specific jurisdiction, just fetch OOJ details for that one
       try {
-        // Find the jurisdiction in the already fetched list
         const jurisdictionId = parseInt(selectedJurisdictionId, 10);
         const currentJurisdiction = allJurisdictionList.find(
-          (jurisdiction) => jurisdiction.id === jurisdictionId
+          jurisdiction => jurisdiction.id === jurisdictionId
         );
-
-        if (currentJurisdiction && 
-            currentJurisdiction.acf && 
-            Array.isArray(currentJurisdiction.acf.ooj_details)) {
-          gridData = currentJurisdiction.acf.ooj_details.map((oojDetail) => ({
+        
+        if (currentJurisdiction) {
+          // Display loading indicator
+          oojJurisdictionGrid.showLoading();
+          
+          // Fetch OOJ details for this jurisdiction
+          const oojDetails = await fetchOojDetailsForJurisdiction(jurisdictionId);
+          
+          // Map the details to the grid format
+          gridData = oojDetails.map(oojDetail => ({
             jurisdictionName: currentJurisdiction.title.rendered,
-            ...oojDetail,
+            ...oojDetail
           }));
+          
+          oojJurisdictionGrid.hideLoading();
         }
       } catch (error) {
-        logger.error("Error loading OOJ data:", error);
+        logger.error(`Error loading OOJ data for jurisdiction ${selectedJurisdictionId}:`, error);
+        oojJurisdictionGrid.hideLoading();
       }
     }
     
+    // Update the grid with the fetched data
     oojJurisdictionGrid.dataSource.data(gridData);
   }
 
