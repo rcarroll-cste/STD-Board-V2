@@ -1346,7 +1346,35 @@
                   url: "https://hivstiooj.cste.org/graphql",
                   type: "POST",
                   data: function(model) {
-                      // Direct approach without creating intermediate variables
+                      console.log('Creating OOJ Detail with model:', model);
+                      
+                      // Prepare taxonomy terms in the format expected by the GraphQL schema
+                      // The schema expects complex input objects with nodes arrays
+                      
+                      // Extract infection ID (single selection)
+                      const infectionId = model.oojInfections && model.oojInfections.length ? 
+                          extractSingleId(model.oojInfections) : null;
+                      
+                      // Extract activity IDs (multi-selection)
+                      const activityIds = (model.oojActivities || []).map(activity => 
+                          typeof activity === 'object' ? activity.databaseId : activity);
+                      
+                      // Extract methods IDs (multi-selection)
+                      const methodIds = (model.methodsOfTransmitting || []).map(method => 
+                          typeof method === 'object' ? method.databaseId : method);
+                      
+                      // Extract PII IDs (multi-selection)
+                      const piiIds = (model.acceptableForPiis || []).map(pii => 
+                          typeof pii === 'object' ? pii.databaseId : pii);
+                      
+                      console.log('Extracted taxonomy IDs:', {
+                          infectionId,
+                          activityIds,
+                          methodIds, 
+                          piiIds
+                      });
+                      
+                      // Format the input for GraphQL schema
                       return {
                           query: CREATE_OOJ_DETAIL_QUERY,
                           variables: {
@@ -1358,29 +1386,27 @@
                                   "acceptAndInvestigate": model.acceptAndInvestigate || "",
                                   "notes": model.notes || "",
                                   "pointOfContacts": extractIds(model.pointOfContacts),
-                                  "oOJInfections": {
+                                  
+                                  // Format taxonomy terms to match GraphQL schema expectations
+                                  "oOJInfections": infectionId ? {
                                       "append": false,
-                                      "nodes": model.oojInfections && model.oojInfections.length ? 
-                                          [{ "id": extractSingleId(model.oojInfections) }] : []
-                                  },
-                                  "oOJActivities": {
+                                      "nodes": [{ "id": infectionId }]
+                                  } : null,
+                                  
+                                  "oOJActivities": activityIds.length ? {
                                       "append": false,
-                                      "nodes": (model.oojActivities || []).map(activity => ({ 
-                                          "id": typeof activity === 'object' ? activity.databaseId : activity 
-                                      }))
-                                  },
-                                  "methodsOfTransmitting": {
+                                      "nodes": activityIds.map(id => ({ "id": id }))
+                                  } : null,
+                                  
+                                  "methodsOfTransmitting": methodIds.length ? {
                                       "append": false,
-                                      "nodes": (model.methodsOfTransmitting || []).map(method => ({ 
-                                          "id": typeof method === 'object' ? method.databaseId : method 
-                                      }))
-                                  },
-                                  "acceptableForPiis": {
+                                      "nodes": methodIds.map(id => ({ "id": id }))
+                                  } : null,
+                                  
+                                  "acceptableForPiis": piiIds.length ? {
                                       "append": false,
-                                      "nodes": (model.acceptableForPiis || []).map(pii => ({ 
-                                          "id": typeof pii === 'object' ? pii.databaseId : pii 
-                                      }))
-                                  }
+                                      "nodes": piiIds.map(id => ({ "id": id }))
+                                  } : null
                               }
                           }
                       };

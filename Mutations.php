@@ -418,76 +418,6 @@ register_graphql_mutation('updateUserStdContact', [
         }
     }
 ]);
-    // User Role Management Mutation
-    register_graphql_mutation('updateUserRoles', [
-        'inputFields' => [
-            'userId' => [
-                'type' => 'ID',
-                'description' => __('Global Relay ID of the User to update.', 'your-textdomain'),
-            ],
-            'jurisdictionId' => [
-                'type' => 'Int',
-                'description' => __('The jurisdiction ID', 'your-textdomain'),
-            ],
-            'roles' => [
-                'type' => ['list_of' => 'String'],
-                'description' => __('List of roles', 'your-textdomain'),
-            ],
-            'oojroles' => [
-                'type' => ['list_of' => 'String'],
-                'description' => __('List of OOJ roles', 'your-textdomain'),
-            ],
-            'contacts' => [
-                'type' => ['list_of' => 'Int'],
-                'description' => __('List of contact IDs', 'your-textdomain'),
-            ],
-        ],
-        'outputFields' => [
-            'user' => [
-                'type' => 'User',
-                'resolve' => function($payload, $args, $context, $info) {
-                    if (!empty($payload['user_id'])) {
-                        return get_user_by('ID', $payload['user_id']);
-                    }
-                    return null;
-                }
-            ]
-        ],
-        'mutateAndGetPayload' => function($input, $context, $info) {
-            $user_id = WPGraphQLUtilsUtils::get_database_id_from_id($input['userId'], 'user');
-            if (!$user_id) {
-                throw new GraphQLErrorUserError('Invalid user ID.');
-            }
-
-            // Update roles if provided
-            if (isset($input['roles']) && is_array($input['roles'])) {
-                // Handle roles update logic here
-                // This depends on how roles are stored in your system
-                update_field('roles', $input['roles'], 'user_' . $user_id);
-            }
-
-            // Update OOJ roles if provided
-            if (isset($input['oojroles']) && is_array($input['oojroles'])) {
-                // Handle OOJ roles update logic
-                update_field('oojroles', $input['oojroles'], 'user_' . $user_id);
-            }
-
-            // Update contacts if provided
-            if (isset($input['contacts']) && is_array($input['contacts'])) {
-                // Handle contacts update logic
-                update_field('contacts', $input['contacts'], 'user_' . $user_id);
-            }
-
-            // Update jurisdiction if provided
-            if (isset($input['jurisdictionId'])) {
-                update_field('user_jurisdiction', $input['jurisdictionId'], 'user_' . $user_id);
-            }
-
-            return [
-                'user_id' => $user_id,
-            ];
-        }
-    ]);
 
     /*********************************************************************************
      * OOJ (OUT OF JURISDICTION) MUTATIONS
@@ -637,7 +567,7 @@ register_graphql_mutation('updateUserStdContact', [
             
             // Handle ACF fields
             // Since these are not in the GraphQL schema, we need to extract them from a top level meta object
-            // or provide clients with a way to pass them. For now, use the graphql_mutation_extras input if available.
+            // or provide clients with a way to pass them.
             
             $meta_fields = [
                 'jurisdictionSelection' => 'jurisdiction_selection',
@@ -654,42 +584,12 @@ register_graphql_mutation('updateUserStdContact', [
                 }
             }
             
-            // Alternative approach for a custom meta object
-            if (!empty($input['oojMeta'])) {
-                if (isset($input['oojMeta']['jurisdictionSelection'])) {
-                    update_field('jurisdiction_selection', $input['oojMeta']['jurisdictionSelection'], $post_id);
-                }
-                
-                if (isset($input['oojMeta']['lastDateOfExposure'])) {
-                    update_field('last_date_of_exposure', $input['oojMeta']['lastDateOfExposure'], $post_id);
-                }
-                
-                if (isset($input['oojMeta']['dispositionsReturned'])) {
-                    update_field('dispositions_returned', $input['oojMeta']['dispositionsReturned'], $post_id);
-                }
-                
-                if (isset($input['oojMeta']['acceptAndInvestigate'])) {
-                    update_field('accept_and_investigate', $input['oojMeta']['acceptAndInvestigate'], $post_id);
-                }
-                
-                if (isset($input['oojMeta']['notes'])) {
-                    update_field('notes', $input['oojMeta']['notes'], $post_id);
-                }
-                
-                if (isset($input['oojMeta']['pointOfContacts'])) {
-                    update_field('point_of_contacts', $input['oojMeta']['pointOfContacts'], $post_id);
-                }
-            }
-            
             return [
                 'id' => $post_id,
             ];
         }
     ]);
 
-    /**
-     * Register the DeleteOOJDetail mutation
-     */
     
     // Register mutation for creating OOJ Details
     register_graphql_mutation('createOOJDetail', [
@@ -735,6 +635,9 @@ register_graphql_mutation('updateUserStdContact', [
             ],
         ],
         'mutateAndGetPayload' => function($input, $context, $info) {
+            // Log the raw input for debugging
+            error_log('RAW CreateOOJDetail input: ' . print_r($input, true));
+            
             // Create the OOJ Detail post
             $post_args = [
                 'post_type' => 'ooj-detail',
@@ -747,125 +650,213 @@ register_graphql_mutation('updateUserStdContact', [
                 $post_args['post_date_gmt'] = get_gmt_from_date($input['date']);
             }
             
+            error_log('Creating OOJ Detail post with: ' . print_r($post_args, true));
             $post_id = wp_insert_post($post_args);
             
             if (is_wp_error($post_id)) {
+                error_log('Error creating OOJ Detail post: ' . $post_id->get_error_message());
                 throw new GraphQLErrorUserError($post_id->get_error_message());
             }
             
-            // Set taxonomies and ACF fields - handle both simple array and complex object formats
+            error_log('OOJ Detail post created with ID: ' . $post_id);
+            
+            // Handle OOJ Infections - extract from complex input object if that's what we got
             if (!empty($input['oOJInfections'])) {
+                $infection_ids = [];
+                
+                // Handle complex object format (from GraphQL schema)
                 if (is_array($input['oOJInfections']) && isset($input['oOJInfections']['nodes'])) {
-                    // Complex object format with nodes array
-                    $infection_ids = array_map(function($node) {
-                        $id = isset($node['id']) ? $node['id'] : 0;
-                        // Convert encoded ID (base64) to database ID if needed
-                        if (!is_numeric($id) && strpos($id, 'term:') !== false) {
-                            $id = (int)substr($id, 5); // Remove 'term:' prefix
+                    foreach ($input['oOJInfections']['nodes'] as $node) {
+                        if (isset($node['id'])) {
+                            $id = $node['id'];
+                            // Handle global ID format (GraphQL)
+                            if (!is_numeric($id) && strpos($id, 'term:') !== false) {
+                                $id = (int)substr($id, 5); // Remove 'term:' prefix
+                            }
+                            $infection_ids[] = $id;
                         }
-                        return $id;
-                    }, $input['oOJInfections']['nodes']);
-                    $infection_ids = array_filter($infection_ids);
-                    if (!empty($infection_ids)) {
-                        $append = isset($input['oOJInfections']['append']) ? $input['oOJInfections']['append'] : false;
-                        wp_set_object_terms($post_id, $infection_ids, 'acf-ooj-infection', $append);
                     }
-                } else {
-                    // Legacy simple array format
-                    wp_set_object_terms($post_id, $input['oOJInfections'], 'acf-ooj-infection');
+                } 
+                // Handle simple array format 
+                else if (is_array($input['oOJInfections'])) {
+                    $infection_ids = $input['oOJInfections'];
+                }
+                
+                $infection_ids = array_map('intval', $infection_ids);
+                $infection_ids = array_filter($infection_ids);
+                
+                if (!empty($infection_ids)) {
+                    error_log('Setting OOJ Infections terms: ' . print_r($infection_ids, true));
+                    $result = wp_set_object_terms($post_id, $infection_ids, 'acf-ooj-infection', false);
+                    if (is_wp_error($result)) {
+                        error_log('Error setting OOJ Infections: ' . $result->get_error_message());
+                    } else {
+                        error_log('Successfully set OOJ Infections: ' . print_r($result, true));
+                    }
                 }
             }
             
+            // Handle OOJ Activities
             if (!empty($input['oOJActivities'])) {
+                $activity_ids = [];
+                
+                // Handle complex object format (from GraphQL schema)
                 if (is_array($input['oOJActivities']) && isset($input['oOJActivities']['nodes'])) {
-                    // Complex object format with nodes array
-                    $activity_ids = array_map(function($node) {
-                        $id = isset($node['id']) ? $node['id'] : 0;
-                        // Convert encoded ID (base64) to database ID if needed
-                        if (!is_numeric($id) && strpos($id, 'term:') !== false) {
-                            $id = (int)substr($id, 5); // Remove 'term:' prefix
+                    foreach ($input['oOJActivities']['nodes'] as $node) {
+                        if (isset($node['id'])) {
+                            $id = $node['id'];
+                            // Handle global ID format (GraphQL)
+                            if (!is_numeric($id) && strpos($id, 'term:') !== false) {
+                                $id = (int)substr($id, 5); // Remove 'term:' prefix
+                            }
+                            $activity_ids[] = $id;
                         }
-                        return $id;
-                    }, $input['oOJActivities']['nodes']);
-                    $activity_ids = array_filter($activity_ids);
-                    if (!empty($activity_ids)) {
-                        $append = isset($input['oOJActivities']['append']) ? $input['oOJActivities']['append'] : false;
-                        wp_set_object_terms($post_id, $activity_ids, 'acf-ooj-activity', $append);
                     }
-                } else {
-                    // Legacy simple array format
-                    wp_set_object_terms($post_id, $input['oOJActivities'], 'acf-ooj-activity');
+                } 
+                // Handle simple array format 
+                else if (is_array($input['oOJActivities'])) {
+                    $activity_ids = $input['oOJActivities'];
+                }
+                
+                $activity_ids = array_map('intval', $activity_ids);
+                $activity_ids = array_filter($activity_ids);
+                
+                if (!empty($activity_ids)) {
+                    error_log('Setting OOJ Activities terms: ' . print_r($activity_ids, true));
+                    $result = wp_set_object_terms($post_id, $activity_ids, 'acf-ooj-activity', false);
+                    if (is_wp_error($result)) {
+                        error_log('Error setting OOJ Activities: ' . $result->get_error_message());
+                    } else {
+                        error_log('Successfully set OOJ Activities: ' . print_r($result, true));
+                    }
                 }
             }
             
+            // Handle Methods of Transmitting
             if (!empty($input['methodsOfTransmitting'])) {
+                $method_ids = [];
+                
+                // Handle complex object format (from GraphQL schema)
                 if (is_array($input['methodsOfTransmitting']) && isset($input['methodsOfTransmitting']['nodes'])) {
-                    // Complex object format with nodes array
-                    $method_ids = array_map(function($node) {
-                        $id = isset($node['id']) ? $node['id'] : 0;
-                        // Convert encoded ID (base64) to database ID if needed
-                        if (!is_numeric($id) && strpos($id, 'term:') !== false) {
-                            $id = (int)substr($id, 5); // Remove 'term:' prefix
+                    foreach ($input['methodsOfTransmitting']['nodes'] as $node) {
+                        if (isset($node['id'])) {
+                            $id = $node['id'];
+                            // Handle global ID format (GraphQL)
+                            if (!is_numeric($id) && strpos($id, 'term:') !== false) {
+                                $id = (int)substr($id, 5); // Remove 'term:' prefix
+                            }
+                            $method_ids[] = $id;
                         }
-                        return $id;
-                    }, $input['methodsOfTransmitting']['nodes']);
-                    $method_ids = array_filter($method_ids);
-                    if (!empty($method_ids)) {
-                        $append = isset($input['methodsOfTransmitting']['append']) ? $input['methodsOfTransmitting']['append'] : false;
-                        wp_set_object_terms($post_id, $method_ids, 'iccr_method-of-transmitting', $append);
                     }
-                } else {
-                    // Legacy simple array format
-                    wp_set_object_terms($post_id, $input['methodsOfTransmitting'], 'iccr_method-of-transmitting');
+                } 
+                // Handle simple array format 
+                else if (is_array($input['methodsOfTransmitting'])) {
+                    $method_ids = $input['methodsOfTransmitting'];
+                }
+                
+                $method_ids = array_map('intval', $method_ids);
+                $method_ids = array_filter($method_ids);
+                
+                if (!empty($method_ids)) {
+                    error_log('Setting Methods of Transmitting terms: ' . print_r($method_ids, true));
+                    $result = wp_set_object_terms($post_id, $method_ids, 'iccr_method-of-transmitting', false);
+                    if (is_wp_error($result)) {
+                        error_log('Error setting Methods of Transmitting: ' . $result->get_error_message());
+                    } else {
+                        error_log('Successfully set Methods of Transmitting: ' . print_r($result, true));
+                    }
                 }
             }
             
+            // Handle Acceptable for PIIs
             if (!empty($input['acceptableForPiis'])) {
+                $pii_ids = [];
+                
+                // Handle complex object format (from GraphQL schema)
                 if (is_array($input['acceptableForPiis']) && isset($input['acceptableForPiis']['nodes'])) {
-                    // Complex object format with nodes array
-                    $pii_ids = array_map(function($node) {
-                        $id = isset($node['id']) ? $node['id'] : 0;
-                        // Convert encoded ID (base64) to database ID if needed
-                        if (!is_numeric($id) && strpos($id, 'term:') !== false) {
-                            $id = (int)substr($id, 5); // Remove 'term:' prefix
+                    foreach ($input['acceptableForPiis']['nodes'] as $node) {
+                        if (isset($node['id'])) {
+                            $id = $node['id'];
+                            // Handle global ID format (GraphQL)
+                            if (!is_numeric($id) && strpos($id, 'term:') !== false) {
+                                $id = (int)substr($id, 5); // Remove 'term:' prefix
+                            }
+                            $pii_ids[] = $id;
                         }
-                        return $id;
-                    }, $input['acceptableForPiis']['nodes']);
-                    $pii_ids = array_filter($pii_ids);
-                    if (!empty($pii_ids)) {
-                        $append = isset($input['acceptableForPiis']['append']) ? $input['acceptableForPiis']['append'] : false;
-                        wp_set_object_terms($post_id, $pii_ids, 'acceptable-for-pii', $append);
                     }
-                } else {
-                    // Legacy simple array format
-                    wp_set_object_terms($post_id, $input['acceptableForPiis'], 'acceptable-for-pii');
+                } 
+                // Handle simple array format 
+                else if (is_array($input['acceptableForPiis'])) {
+                    $pii_ids = $input['acceptableForPiis'];
+                }
+                
+                $pii_ids = array_map('intval', $pii_ids);
+                $pii_ids = array_filter($pii_ids);
+                
+                if (!empty($pii_ids)) {
+                    error_log('Setting Acceptable for PIIs terms: ' . print_r($pii_ids, true));
+                    $result = wp_set_object_terms($post_id, $pii_ids, 'acceptable-for-pii', false);
+                    if (is_wp_error($result)) {
+                        error_log('Error setting Acceptable for PIIs: ' . $result->get_error_message());
+                    } else {
+                        error_log('Successfully set Acceptable for PIIs: ' . print_r($result, true));
+                    }
                 }
             }
             
             // Update ACF fields
+            $acf_updates = [];
+            
             if (isset($input['jurisdictionSelection'])) {
-                update_field('jurisdiction_selection', $input['jurisdictionSelection'], $post_id);
+                $value = intval($input['jurisdictionSelection']);
+                $result = update_field('jurisdiction_selection', $value, $post_id);
+                $acf_updates['jurisdiction_selection'] = $result ? 'success' : 'failed';
+                error_log("Setting jurisdiction_selection to {$value}: " . ($result ? 'success' : 'failed'));
             }
             
             if (isset($input['lastDateOfExposure'])) {
-                update_field('last_date_of_exposure', $input['lastDateOfExposure'], $post_id);
+                $value = sanitize_text_field($input['lastDateOfExposure']);
+                $result = update_field('last_date_of_exposure', $value, $post_id);
+                $acf_updates['last_date_of_exposure'] = $result ? 'success' : 'failed';
+                error_log("Setting last_date_of_exposure to {$value}: " . ($result ? 'success' : 'failed'));
             }
             
             if (isset($input['dispositionsReturned'])) {
-                update_field('dispositions_returned', $input['dispositionsReturned'], $post_id);
+                $value = sanitize_text_field($input['dispositionsReturned']);
+                $result = update_field('dispositions_returned', $value, $post_id);
+                $acf_updates['dispositions_returned'] = $result ? 'success' : 'failed';
+                error_log("Setting dispositions_returned to {$value}: " . ($result ? 'success' : 'failed'));
             }
             
             if (isset($input['acceptAndInvestigate'])) {
-                update_field('accept_and_investigate', $input['acceptAndInvestigate'], $post_id);
+                $value = sanitize_text_field($input['acceptAndInvestigate']);
+                $result = update_field('accept_and_investigate', $value, $post_id);
+                $acf_updates['accept_and_investigate'] = $result ? 'success' : 'failed';
+                error_log("Setting accept_and_investigate to {$value}: " . ($result ? 'success' : 'failed'));
             }
             
             if (isset($input['notes'])) {
-                update_field('notes', $input['notes'], $post_id);
+                $value = sanitize_text_field($input['notes']);
+                $result = update_field('notes', $value, $post_id);
+                $acf_updates['notes'] = $result ? 'success' : 'failed';
+                error_log("Setting notes to {$value}: " . ($result ? 'success' : 'failed'));
             }
             
-            if (isset($input['pointOfContacts'])) {
-                update_field('point_of_contacts', $input['pointOfContacts'], $post_id);
+            if (isset($input['pointOfContacts']) && is_array($input['pointOfContacts'])) {
+                $contacts = array_map('intval', $input['pointOfContacts']);
+                $result = update_field('point_of_contacts', $contacts, $post_id);
+                $acf_updates['point_of_contacts'] = $result ? 'success' : 'failed';
+                error_log("Setting point_of_contacts to " . json_encode($contacts) . ": " . ($result ? 'success' : 'failed'));
             }
+            
+            error_log('ACF field updates: ' . print_r($acf_updates, true));
+            
+            // Force a clean of the post cache to ensure ACF fields are saved
+            clean_post_cache($post_id);
+            
+            // Log the final status of all ACF fields
+            $post_meta = get_post_meta($post_id);
+            error_log('Final post meta: ' . print_r($post_meta, true));
             
             return [
                 'id' => $post_id,
