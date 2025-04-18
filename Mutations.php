@@ -1,4 +1,5 @@
-/**
+
+/***
  * Combined GraphQL Mutations File
  *
  * This file combines the following mutation functionality:
@@ -10,55 +11,49 @@
 // Main GraphQL types registration hook
 add_action('graphql_register_types', function() {
     
-    // Register OOJDetailError type for error handling
-    register_graphql_object_type('OOJDetailError', [
-        'description' => __('Error information returned by OOJ Detail mutations', 'your-textdomain'),
-        'fields' => [
-            'field' => [
-                'type' => 'String',
-                'description' => __('The field that caused the error', 'your-textdomain'),
-            ],
-            'message' => [
-                'type' => 'String',
-                'description' => __('The error message', 'your-textdomain'),
-            ],
-        ],
-    ]);
+
     
     // Register fields for CreateOOJDetailInput to ensure they're properly exposed in the schema
-    register_graphql_field('CreateOOJDetailInput', 'jurisdictionSelection', [
+    register_graphql_field('CreateOOJDetailInput', 'acfJurisdictionSelection', [
         'type' => 'Int',
         'description' => __('The jurisdiction selection (std_jurisdiction post ID)', 'your-textdomain'),
     ]);
     
-    // Register the jurisdictionId argument for OOJ Details query
-    // This needs to be registered early so it's available for queries
-    register_graphql_field('RootQueryToOOJDetailConnectionWhereArgs', 'jurisdictionId', [
+    // Register the jurisdictionId argument for OOJ Details query is already registered elsewhere
+    // Removing duplicate registration that was causing errors
+    
+    register_graphql_field('CreateOOJDetailInput', 'acfLastDateOfExposure', [
+        'type' => 'String',
+        'description' => __('Last date of exposure', 'your-textdomain'),
+    ]);
+  
+    // Register fields for UpdateOOJDetailInput to match CreateOOJDetailInput
+    register_graphql_field('UpdateOOJDetailInput', 'jurisdictionSelection', [
         'type' => 'Int',
-        'description' => __('Filter OOJ Details by jurisdiction ID', 'your-textdomain'),
+        'description' => __('The jurisdiction selection (std_jurisdiction post ID)', 'your-textdomain'),
     ]);
     
-    register_graphql_field('CreateOOJDetailInput', 'lastDateOfExposure', [
+    register_graphql_field('UpdateOOJDetailInput', 'lastDateOfExposure', [
         'type' => 'String',
         'description' => __('Last date of exposure', 'your-textdomain'),
     ]);
     
-    register_graphql_field('CreateOOJDetailInput', 'dispositionsReturned', [
+    register_graphql_field('UpdateOOJDetailInput', 'dispositionsReturned', [
         'type' => 'String',
         'description' => __('Dispositions returned', 'your-textdomain'),
     ]);
     
-    register_graphql_field('CreateOOJDetailInput', 'acceptAndInvestigate', [
+    register_graphql_field('UpdateOOJDetailInput', 'acceptAndInvestigate', [
         'type' => 'String',
         'description' => __('Accept and investigate', 'your-textdomain'),
     ]);
     
-    register_graphql_field('CreateOOJDetailInput', 'notes', [
+    register_graphql_field('UpdateOOJDetailInput', 'notes', [
         'type' => 'String',
         'description' => __('Notes for this OOJ detail', 'your-textdomain'),
     ]);
     
-    register_graphql_field('CreateOOJDetailInput', 'pointOfContacts', [
+    register_graphql_field('UpdateOOJDetailInput', 'pointOfContacts', [
         'type' => ['list_of' => 'Int'],
         'description' => __('Point of contacts user IDs', 'your-textdomain'),
     ]);
@@ -133,140 +128,9 @@ add_action('graphql_register_types', function() {
      * - Contact information (phone, fax)
      * - Notes and jurisdiction assignment
      *********************************************************************************/
-register_graphql_mutation('createUser', [
-    // Only include standard WordPress user fields - custom fields will be handled in a separate update
-    'inputFields' => [
-        'username'          => ['type' => ['non_null' => 'String'], 'description' => __('User\'s username (required)', 'your-textdomain')],
-        'firstName'         => ['type' => 'String', 'description' => __('User\'s first name', 'your-textdomain')],
-        'lastName'          => ['type' => 'String', 'description' => __('User\'s last name', 'your-textdomain')],
-        'email'             => ['type' => ['non_null' => 'String'], 'description' => __('User\'s email address (required)', 'your-textdomain')],
-        'password'          => ['type' => ['non_null' => 'String'], 'description' => __('User\'s password (required)', 'your-textdomain')],
-    ],
-    'outputFields' => [
-        'user' => [
-            'type' => 'User',
-            'resolve' => function($payload, $args, $context, $info) {
-                if (!empty($payload['user_id'])) {
-                    $user_obj = get_user_by('ID', $payload['user_id']);
-                    if ($user_obj) {
-                        return new WPGraphQLModelUser($user_obj);
-                    }
-                }
-                return null;
-            }
-        ]
-    ],
-    'mutateAndGetPayload' => function($input, $context, $info) {
-        error_log('User creation mutation input: ' . print_r($input, true));
-        
-        try {
-            // Required fields validation
-            if (empty($input['username'])) {
-                throw new GraphQLErrorUserError('Username is required.');
-            }
-            
-            if (empty($input['email']) || !is_email($input['email'])) {
-                throw new GraphQLErrorUserError('Valid email is required.');
-            }
-            
-            if (empty($input['password'])) {
-                throw new GraphQLErrorUserError('Password is required.');
-            }
-            
-            // Check if username or email already exists
-            if (username_exists($input['username'])) {
-                throw new GraphQLErrorUserError('Username already exists.');
-            }
-            
-            if (email_exists($input['email'])) {
-                throw new GraphQLErrorUserError('Email already exists.');
-            }
-            
-            // Create the user with core WordPress fields only
-            $user_data = [
-                'user_login' => sanitize_user($input['username']),
-                'user_email' => sanitize_email($input['email']),
-                'user_pass'  => $input['password'], // wp_insert_user will handle password hashing
-                'role'       => 'subscriber', // default role, adjust as needed
-            ];
-            
-            if (!empty($input['firstName'])) {
-                $user_data['first_name'] = sanitize_text_field($input['firstName']);
-            }
-            
-            if (!empty($input['lastName'])) {
-                $user_data['last_name'] = sanitize_text_field($input['lastName']);
-            }
-            
-            // Insert the user
-            $user_id = wp_insert_user($user_data);
-            
-            if (is_wp_error($user_id)) {
-                error_log('WP Error on user creation: ' . $user_id->get_error_message());
-                throw new GraphQLErrorUserError('Failed to create user: ' . $user_id->get_error_message());
-            }
-            
-            error_log("User created with ID: $user_id");
-            
-            // Return only the user ID - custom fields will be updated separately using updateUserStdContact
-            return [
-                'user_id' => $user_id
-            ];
-            
-        } catch (Exception $e) {
-            error_log('Error in user creation mutation: ' . $e->getMessage());
-            throw $e; // Re-throw to be handled by GraphQL
-        }
-    }
-]);
 
-register_graphql_mutation('deleteUser', [
-    'inputFields' => [
-        'id' => [
-            'type' => ['non_null' => 'ID'],
-            'description' => __('ID of the user to delete', 'your-textdomain'),
-        ]
-        // Removed forceDelete as it's not recognized in DeleteUserInput
-    ],
-    'outputFields' => [
-        'deletedId' => [
-            'type' => 'ID',
-            'description' => __('The ID of the deleted user', 'your-textdomain'),
-            'resolve' => function($payload) {
-                return $payload['deletedId'] ?? null;
-            }
-        ]
-        // Removed success and deleted fields as they're not recognized in DeleteUserPayload
-    ],
-    'mutateAndGetPayload' => function($input, $context, $info) {
-        try {
-            // Get the user ID from the global ID
-            $user_id = WPGraphQLUtilsUtils::get_database_id_from_id($input['id'], 'user');
-            
-            if (!$user_id) {
-                throw new GraphQLErrorUserError('Invalid user ID.');
-            }
-            
-            // Check if user exists
-            $user = get_user_by('ID', $user_id);
-            if (!$user) {
-                throw new GraphQLErrorUserError('User not found.');
-            }
-            
-            // Perform the deletion
-            $reassign = null; // default to not reassigning posts
-            $result = wp_delete_user($user_id, $reassign);
-            
-            // Just return the ID, as that's the only field supported in the schema
-            return [
-                'deletedId' => $input['id']
-            ];
-        } catch (Exception $e) {
-            error_log('Error in user deletion mutation: ' . $e->getMessage());
-            throw $e; // Re-throw to be handled by GraphQL
-        }
-    }
-]);
+	
+
 
 register_graphql_mutation('updateUserStdContact', [
     'inputFields' => [
@@ -293,7 +157,7 @@ register_graphql_mutation('updateUserStdContact', [
                 if (!empty($payload['user_id'])) {
                     $user_obj = get_user_by('ID', $payload['user_id']);
                     if ($user_obj) {
-                        return new WPGraphQLModelUser($user_obj);
+                        return new \WPGraphQL\Model\User($user_obj);
                     }
                 }
                 return null;
@@ -319,7 +183,8 @@ register_graphql_mutation('updateUserStdContact', [
         
         try {
             // Get the numeric user ID
-            $user_id = WPGraphQLUtilsUtils::get_database_id_from_id($input['userId'], 'user');
+            // Corrected line:
+$user_id = \WPGraphQL\Utils\Utils::get_database_id_from_id($input['userId']);
             
             if (!$user_id) {
                 throw new GraphQLErrorUserError('Invalid user ID.');
@@ -427,45 +292,20 @@ register_graphql_mutation('updateUserStdContact', [
      * - Contact information and methods of transmitting
      * - Investigation details and acceptable PII flags
      *********************************************************************************/
-    
-    /**
-     * Register OOJ Detail mutation
-     */
-    
-    /**
-     * Register the UpdateOOJDetail mutation
-     * 
-     * Note: The inputFields are handled by WPGraphQL core. 
-     * We don't need to register all fields explicitly as they're auto-generated.
-     * The actual expected format from GraphQL introspection is:
-     * - 'id': Required ID in base64 global ID format (e.g., "cG9zdDo2NjE=" for post:661)
-     * - 'title', 'date', 'status': Standard post fields
-     * - For taxonomies, complex objects with this structure:
-     *   oOJInfections: { append: false, nodes: [{ id: 2 }] }
-     *   
-     * See mutateAndGetPayload for how these are processed.
-     */
-    register_graphql_mutation('updateOOJDetail', [
-        // Let WPGraphQL handle input fields definition
-        'inputFields' => [
-            'id' => [
-                'type' => ['non_null' => 'ID'],
-                'description' => __('ID of the OOJ Detail to update (Base64 Global ID)', 'your-textdomain'),
+    register_graphql_object_type('OOJDetailError', [
+        'description' => __('Error information returned by OOJ Detail mutations', 'your-textdomain'),
+        'fields' => [
+            'field' => [
+                'type' => 'String',
+                'description' => __('The field that caused the error', 'your-textdomain'),
             ],
-            // Other fields are handled automatically by WPGraphQL
-        ],
-        'outputFields' => [
-            'oojDetail' => [
-                'type' => 'OOJDetail',
-                'description' => __('The updated OOJ Detail', 'your-textdomain'),
-                'resolve' => function($payload, $args, $context, $info) {
-                    if (!empty($payload['id'])) {
-                        return get_post($payload['id']);
-                    }
-                    return null;
-                }
+            'message' => [
+                'type' => 'String',
+                'description' => __('The error message', 'your-textdomain'),
             ],
         ],
+<<<<<<< HEAD
+=======
         'mutateAndGetPayload' => function($input, $context, $info) {
             // Get the post ID from the global ID
             $post_id = WPGraphQLUtilsUtils::get_database_id_from_id($input['id'], 'oOJDetail');
@@ -864,52 +704,38 @@ register_graphql_mutation('updateUserStdContact', [
                 'errors' => null,
             ];
         }
+>>>>>>> main
     ]);
     
-    register_graphql_mutation('deleteOOJDetail', [
-        'inputFields' => [
+    // Register fields for where arguments in OOJ Queries
+    register_graphql_field('RootQueryToOOJDetailConnectionWhereArgs', 'jurisdictionId', [
+        'type' => 'Int',
+        'description' => __('Filter OOJ Details by jurisdiction ID', 'your-textdomain'),
+    ]);
+    
+    // Register taxonomy input type for OOJ Detail mutations
+    register_graphql_input_type('OOJDetailTaxonomyInput', [
+        'description' => __('Input for taxonomy terms in OOJ Detail mutations', 'your-textdomain'),
+        'fields' => [
+            'append' => [
+                'type' => 'Boolean',
+                'description' => __('Whether to append terms or replace existing ones', 'your-textdomain')
+            ],
+            'nodes' => [
+                'type' => ['list_of' => 'OOJDetailTermInput'],
+                'description' => __('Term nodes to assign', 'your-textdomain')
+            ]
+        ]
+    ]);
+    
+    register_graphql_input_type('OOJDetailTermInput', [
+        'description' => __('Input for a taxonomy term in OOJ Detail mutations', 'your-textdomain'),
+        'fields' => [
             'id' => [
-                'type' => ['non_null' => 'ID'],
-                'description' => __('ID of the OOJ Detail to delete', 'your-textdomain'),
-            ],
-            'forceDelete' => [
-                'type' => 'Boolean',
-                'description' => __('Whether to permanently delete or move to trash', 'your-textdomain'),
-            ],
-        ],
-        'outputFields' => [
-            'deletedId' => [
                 'type' => 'ID',
-                'description' => __('The ID of the deleted OOJ Detail', 'your-textdomain'),
-                'resolve' => function($payload) {
-                    return $payload['deletedId'] ?? null;
-                }
-            ],
-            'success' => [
-                'type' => 'Boolean',
-                'description' => __('Whether the deletion was successful', 'your-textdomain'),
-                'resolve' => function($payload) {
-                    return $payload['success'] ?? false;
-                }
-            ],
-        ],
-        'mutateAndGetPayload' => function($input, $context, $info) {
-            // Get the post ID from the global ID
-            $post_id = WPGraphQLUtilsUtils::get_database_id_from_id($input['id'], 'oOJDetail');
-            
-            if (!$post_id || get_post_type($post_id) !== 'ooj-detail') {
-                throw new GraphQLErrorUserError('Invalid OOJ Detail ID.');
-            }
-            
-            // Force delete or trash based on input
-            $force_delete = isset($input['forceDelete']) ? (bool) $input['forceDelete'] : false;
-            $result = wp_delete_post($post_id, $force_delete);
-            
-            return [
-                'deletedId' => $input['id'],
-                'success' => (bool) $result,
-            ];
-        }
+                'description' => __('ID of the term (can be database ID or global ID)', 'your-textdomain')
+            ]
+        ]
     ]);
 });
 
@@ -996,3 +822,47 @@ add_action('graphql_post_object_mutation_create_additional_data', function($post
 
     error_log('=== End Jurisdiction Creation ===');
 }, 10, 4);
+
+/*********************************************************************************
+ * OOJ DETAIL MUTATION HANDLERS
+ * 
+ * These action hooks process the actual data updates for OOJ Detail mutations
+ *********************************************************************************/
+
+// Handle the mutation data for OOJ Detail creation
+add_action('graphql_post_object_mutation_create_additional_data', function($post_id, $input, $post_type_object, $mutation_name) {
+    // Only process if this is for the OOJ Detail post type
+    if ($post_type_object->name !== 'ooj-detail') {
+        return;
+    }
+    
+    error_log('=== Starting OOJ Detail Creation ===');
+    error_log('Post ID: ' . $post_id);
+    error_log('Input data: ' . print_r($input, true));
+    
+    // Map GraphQL camelCase field names to ACF snake_case field names
+    
+    // Handle acfJurisdictionSelection field
+    if (isset($input['acfJurisdictionSelection'])) {
+        $result = update_field('acf_jurisdiction_selection', $input['acfJurisdictionSelection'], $post_id);
+        error_log("Creating acf_jurisdiction_selection with value {$input['acfJurisdictionSelection']}: " . ($result ? 'success' : 'failed'));
+    }
+    
+    // Handle acfLastDateOfExposure field
+    if (isset($input['acfLastDateOfExposure'])) {
+        $result = update_field('acf_last_date_of_exposure', $input['acfLastDateOfExposure'], $post_id);
+        error_log("Creating acf_last_date_of_exposure with value {$input['acfLastDateOfExposure']}: " . ($result ? 'success' : 'failed'));
+    }
+    
+    // Make sure status is set to publish if not already
+    if (!isset($input['status']) || $input['status'] !== 'publish') {
+        wp_update_post([
+            'ID' => $post_id,
+            'post_status' => 'publish'
+        ]);
+        error_log("Updated post status to publish");
+    }
+    
+    error_log('=== End OOJ Detail Creation ===');
+}, 15, 4); // Priority 15 to ensure it runs at the right time
+

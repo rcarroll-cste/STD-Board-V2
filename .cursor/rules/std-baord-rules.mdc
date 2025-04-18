@@ -1,0 +1,22 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+---
+description: The rules for this specific Folder and teh code within it
+globs: 
+alwaysApply: true
+---
+
+# Your rule content
+
+- You can @ files here
+- You can use markdown but dont have to
+- Use Kendo UI Functions where possible
+- 'date of last exposure' should have a taxtbox editor not a datepicker
+- There is no 'arrary' type for Kendo UI, it would need to be 'object' in that case
+- This Project us is a Kendo UI, Wordpress with Advanced Custom fields plugin and WPgraphQL Plugin.
+- Use Kendo UI Best Practices
+- Never add new functionality unless confirmed by the user, unless it resolves an error
+- Never assume, always confirm with the user
