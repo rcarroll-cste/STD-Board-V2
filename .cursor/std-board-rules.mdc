@@ -1,0 +1,16 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+---
+description: Project Rules
+globs: 
+alwaysApply: true
+---
+
+- Generate only javascript or php code as the html is taken care of seperately.
+- Only update code related specifically to what I asked, no more than that.
+- Never add code unrelated to what I asked to be changed.
+- Wordpress doesn't use 'PUT' in the REST API it will be 'POST'
+
