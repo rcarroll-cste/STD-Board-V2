@@ -566,3 +566,176 @@ function generateSecurePassword(length = 12) {
     return password;
 }
 // --- END ADD ---
+
+// --- ADD Helper functions for OOJ Grid ---
+
+// Generic function to extract database IDs (ensure it's defined or moved here)
+// ... (keep extractIds as is) ...
+
+// Generic template factory functions
+function createTaxonomyTemplate(fieldName) {
+    return function(dataItem) {
+        const items = dataItem[fieldName];
+        if (Array.isArray(items) && items.length > 0) {
+            // If only one item (likely from single select), just show its name
+            if (items.length === 1) {
+                return (items[0] && items[0].name) ? items[0].name : 'Invalid Item';
+            }
+            // Otherwise (for multi-select), join names with a comma
+            return items.map(item => (item && item.name) ? item.name : 'Invalid Item').join(', ');
+        }
+        return '—'; // Return em dash if no data or not an array
+    };
+}
+
+// ... (keep createPointOfContactsTemplate as is) ...
+// ... (keep createSingleSelectEditor as is) ...
+// ... (keep createMultiSelectEditor as is) ...
+
+// Specific editor functions for each taxonomy/relationship
+function createOojInfectionEditor(container, options) {
+    // This already correctly uses createSingleSelectEditor
+    createSingleSelectEditor(container, options, {
+        fieldName: "oojInfections",
+        dataSource: oojInfectionsData,
+        placeholder: "Select Infection..."
+    });
+}
+
+function createOojActivitiesEditor(container, options) {
+    // CHANGE: Use createSingleSelectEditor instead of createMultiSelectEditor
+    createSingleSelectEditor(container, options, {
+        fieldName: "oojActivities",
+        dataSource: oojActivitiesData,
+        placeholder: "Select Activity..." // Adjusted placeholder
+    });
+}
+
+// ... (keep createMethodsOfTransmittingEditor as is - assuming it's multi-select) ...
+// ... (keep createAcceptableForPiisEditor as is - assuming it's multi-select) ...
+// ... (keep createPointOfContactsEditor as is - already single select) ...
+
+// --- END ADD Helper functions ---
+
+
+// --- ADD initializeOOJGrid Function ---
+function initializeOOJGrid(jurisdictionId) {
+    var oojDataSource = new kendo.data.DataSource({
+        // ... (keep transport and parameterMap as is) ...
+        schema: {
+            model: {
+                id: "id", // The WordPress Post ID
+                fields: {
+                    id: { editable: false, nullable: true },
+                    title: { type: "string", defaultValue: "OOJ Detail" },
+                    oojInfections: { defaultValue: [] },
+                    oojActivities: { defaultValue: [] },
+                    // CHANGE: lastDateOfExposure back to string
+                    lastDateOfExposure: { type: "string" },
+                    dispositionsReturned: { type: "string" },
+                    acceptAndInvestigate: { type: "string" },
+                    methodsOfTransmitting: { defaultValue: [] }, // Assuming multi-select
+                    acceptableForPiis: { defaultValue: [] },    // Assuming multi-select
+                    pointOfContacts: {
+                        defaultValue: [],
+                        validation: { required: { message: "Point of Contact is required" } }
+                    },
+                    notes: { type: "string" }
+                }
+            },
+            // ... (keep parse and error functions as is) ...
+        }, // End schema
+         // ... (keep change function as is) ...
+    }); // End oojDataSource
+
+    // OOJ Grid Initialization
+    $("#OojGrid").kendoGrid({
+        dataSource: oojDataSource,
+        // ... (keep general grid options like height, scrollable, toolbar, editable, save) ...
+         save: function(e) {
+            console.log("OOJ Grid save event triggered for model:", e.model);
+            var validator = e.container.find("[data-role=validator]").data("kendoValidator"); // Find validator within the container
+             if (validator && !validator.validate()) {
+                console.error("OOJ Grid: Validation failed. Preventing save.");
+                e.preventDefault(); // Prevent the sync/transport call
+            } else {
+                console.log("OOJ Grid: Validation passed. Proceeding with save.");
+                // Allow default save behavior
+            }
+        },
+        columns: [
+             {
+                field: "oojInfections", title: "OOJ Infections", width: 180,
+                // Add a custom attribute for potentially more descriptive tooltip content later
+                headerAttributes: { "data-tooltip-content": "Select the primary infection type related to the Out-of-Jurisdiction case." },
+                template: createTaxonomyTemplate("oojInfections"), // Template handles single/multi
+                editor: createOojInfectionEditor // Uses single-select editor
+            },
+            {
+                field: "oojActivities", title: "OOJ Activities", width: 180,
+                 headerAttributes: { "data-tooltip-content": "Select the activity or activities performed for this case." },
+                template: createTaxonomyTemplate("oojActivities"), // Template handles single/multi
+                editor: createOojActivitiesEditor // NOW uses single-select editor
+            },
+            {
+                 field: "lastDateOfExposure", title: "Last Exposure Dt", width: 150,
+                 headerAttributes: { "data-tooltip-content": "Enter the estimated last date of exposure relevant to the case." }
+                 // REMOVED: format: "{0:MM/dd/yyyy}"
+             },
+            {
+                field: "dispositionsReturned", title: "Dispositions Returned", width: 160,
+                headerAttributes: { "data-tooltip-content": "Description for Dispositions Returned." } // Add more descriptions
+            },
+            {
+                field: "acceptAndInvestigate", title: "Accept & Investigate", width: 160,
+                 headerAttributes: { "data-tooltip-content": "Description for Accept & Investigate." }
+             },
+            {
+                field: "methodsOfTransmitting", title: "Transmission Methods", width: 180,
+                 headerAttributes: { "data-tooltip-content": "Select the method(s) used for transmitting information." },
+                template: createTaxonomyTemplate("methodsOfTransmitting"), // Template handles single/multi
+                editor: createMethodsOfTransmittingEditor // Assumed multi-select
+            },
+            {
+                field: "acceptableForPiis", title: "Acceptable PII", width: 180,
+                headerAttributes: { "data-tooltip-content": "Select the types of Personally Identifiable Information acceptable for transmission." },
+                template: createTaxonomyTemplate("acceptableForPiis"), // Template handles single/multi
+                editor: createAcceptableForPiisEditor // Assumed multi-select
+            },
+            {
+                field: "pointOfContacts", title: "Point of Contact", width: 180,
+                 headerAttributes: { "data-tooltip-content": "Select the primary point of contact within your jurisdiction for this case." },
+                template: createPointOfContactsTemplate(), // Handles single POC
+                editor: createPointOfContactsEditor // Uses single-select editor
+            },
+            {
+                field: "notes", title: "Notes", width: 200,
+                headerAttributes: { "data-tooltip-content": "Enter any relevant notes for this OOJ case." }
+            },
+            { command: ["edit", "destroy"], title: "&nbsp;", width: "180px" }
+        ]
+    }); // End kendoGrid initialization
+
+    // --- ADD Tooltip Initialization for Headers ---
+    $("#ooj_grid .k-grid-header").kendoTooltip({
+        // Filter to target the header cells that have a data-field attribute
+        filter: "th[data-field]",
+        // Position the tooltip below the header
+        position: "bottom",
+        // Define the content dynamically based on the target header
+        content: function(e) {
+            // e.target is the jQuery object for the specific <th> element
+            var target = e.target;
+            // Retrieve the custom tooltip content from the data attribute
+            var tooltipContent = target.data("tooltip-content");
+            // Fallback to the title if no custom content is set
+            return tooltipContent || target.data("title") || "No description";
+        },
+        // Optional: Adjust width, add animation, etc.
+        width: 200,
+        showAfter: 750 // Show after a slight delay (milliseconds)
+    });
+    console.log("Kendo Tooltip initialized for OOJ grid headers.");
+    // --- END Tooltip Initialization ---
+
+} // --- END initializeOOJGrid Function ---
