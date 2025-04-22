@@ -692,83 +692,102 @@ function initializeOOJGrid(jurisdictionId) {
                     acceptableForPiis: { defaultValue: [] },
                     pointOfContacts: {
                         defaultValue: [],
-                        validation: { required: true, min: 1, message: "Point of Contact is required" } 
+                        validation: { required: true, message: "Point of Contact is required" }
                     },
                     notes: { type: "string" },
                     oojPhone: { type: "string" },
                     oojFax: { type: "string" },
-                    oojEmail: { type: "string", validation: { email: true } } 
+                    oojEmail: { type: "string", validation: { email: true } }
                 }
             },
             parse: function(response) {
-                console.log("Parsing OOJ response (using _embed):", response);
-                if (!Array.isArray(response)) {
-                     console.warn("OOJ parse: Response is not an array", response);
-                    if (response && typeof response === 'object' && response.id) {
-                        response = [response];
-                    } else {
-                         return []; 
-                    }
+                console.log("Parsing OOJ response:", response);
+                let dataToProcess = [];
+
+                if (Array.isArray(response)) {
+                    dataToProcess = response;
+                } else if (response && typeof response === 'object' && response.id) {
+                    dataToProcess = [response];
+                } else {
+                    console.warn("OOJ parse: Response is not an array or valid object", response);
+                    return [];
                 }
 
-                return response.map(item => {
-                    const acf = item.acf || {};
-                    const embedded = item._embedded || {}; 
-                    const embeddedTermArrays = embedded['wp:term'] || []; 
-                    console.log("Processing item:", item.id, "Raw Embedded Terms:", embeddedTermArrays); 
+                try {
+                    return dataToProcess.map(item => {
+                        if (!item || typeof item !== 'object') {
+                            console.warn('Invalid item found in dataToProcess array:', item);
+                            return null;
+                        }
 
-                    const mapped = {
-                        id: item.id,
-                        title: item.title?.rendered || "OOJ Detail",
-                        lastDateOfExposure: acf.last_date_of_exposure || "",
-                        dispositionsReturned: acf.dispositions_returned || "",
-                        acceptAndInvestigate: acf.accept_and_investigate || "", 
-                        notes: acf.notes || "",
-                        pointOfContacts: [],
-                        oojInfections: [],
-                        oojActivities: [],
-                        methodsOfTransmitting: [],
-                        acceptableForPiis: [],
-                        oojPhone: acf.ooj_phone || "",
-                        oojFax: acf.ooj_fax || "",
-                        oojEmail: acf.ooj_email || ""
-                    };
+                        const acf = item.acf || {};
+                        const mapped = {
+                            id: item.id,
+                            title: item.title?.rendered || "OOJ Detail",
+                            lastDateOfExposure: acf.last_date_of_exposure || "",
+                            dispositionsReturned: acf.dispositions_returned || "",
+                            acceptAndInvestigate: acf.accept_and_investigate || "",
+                            notes: acf.notes || "",
+                            pointOfContacts: [],
+                            oojInfections: [],
+                            oojActivities: [],
+                            methodsOfTransmitting: [],
+                            acceptableForPiis: [],
+                            oojPhone: acf.ooj_phone || "",
+                            oojFax: acf.ooj_fax || "",
+                            oojEmail: acf.ooj_email || ""
+                        };
 
-                    const contactIds = acf.point_of_contacts;
-                    if (Array.isArray(contactIds)) {
-                        console.log("Raw Contact IDs:", contactIds, "Global contactsData:", contactsData); 
-                        mapped.pointOfContacts = contactIds.map(userId => {
-                            const user = contactsData.find(c => c.id == userId); 
-                            console.log(`Finding contact ID ${userId} -> Found:`, user); 
-                            return user ? user : { id: userId, name: `Unknown (${userId})` }; 
-                        }).filter(u => u);
-                         console.log("Mapped POC:", mapped.pointOfContacts); 
-                    }
+                        const contactIds = acf.point_of_contacts;
+                        if (Array.isArray(contactIds)) {
+                            const safeContactsData = Array.isArray(contactsData) ? contactsData : [];
+                            mapped.pointOfContacts = contactIds.map(userId => {
+                                const user = safeContactsData.find(c => c && c.id == userId);
+                                return user ? { id: user.id, databaseId: user.id, name: user.name, firstName: user.firstName, lastName: user.lastName } : { id: userId, databaseId: userId, name: `Unknown (${userId})` };
+                            }).filter(u => u && u.id);
+                        }
 
-                    const mapEmbeddedTaxonomy = (apiTaxonomyKey, targetField) => {
-                        let foundTerms = [];
-                        for (const termArray of embeddedTermArrays) {
-                            if (Array.isArray(termArray) && termArray.length > 0 && termArray[0].taxonomy === apiTaxonomyKey) {
-                                foundTerms = termArray.map(term => ({
-                                    id: term.id, 
-                                    name: term.name
-                                }));
-                                break;
+                        const termMappings = {
+                            'acf-ooj-infection':         { targetArray: 'oojInfections',         sourceData: oojInfectionsData },
+                            'acf-ooj-activity':          { targetArray: 'oojActivities',         sourceData: oojActivitiesData },
+                            'iccr_method-of-transmitting': { targetArray: 'methodsOfTransmitting', sourceData: methodsTransmittingData },
+                            'acceptable-for-pii':        { targetArray: 'acceptableForPiis',     sourceData: acceptablePiisData }
+                        };
+
+                        for (const termKey in termMappings) {
+                            const mappingInfo = termMappings[termKey];
+                            const targetArrayName = mappingInfo.targetArray;
+                            const sourceList = Array.isArray(mappingInfo.sourceData) ? mappingInfo.sourceData : [];
+
+                            if (item[termKey] && Array.isArray(item[termKey])) {
+                                console.log(`Processing ${targetArrayName} from item['${termKey}']:`, item[termKey]);
+
+                                const processedTerms = item[termKey].map(termId => {
+                                    if (termId === null || termId === undefined) return null;
+
+                                    const foundTerm = sourceList.find(t => t && Number(t.databaseId) === Number(termId));
+
+                                    if (foundTerm) {
+                                        return { id: foundTerm.id, databaseId: foundTerm.databaseId, name: foundTerm.name };
+                                    } else {
+                                        console.warn("Term ID not found in global list:", termId, "for taxonomy:", termKey);
+                                        return { id: termId, databaseId: termId, name: `Unknown Term (${termId})`};
+                                    }
+                                }).filter(term => term !== null);
+
+                                mapped[targetArrayName] = processedTerms;
+                            } else {
+                                mapped[targetArrayName] = [];
                             }
                         }
-                        console.log(`Found terms for ${apiTaxonomyKey}:`, foundTerms); 
-                        mapped[targetField] = foundTerms;
-                         console.log(`Mapped ${targetField}:`, mapped[targetField]);
-                    };
-                    
-                    mapEmbeddedTaxonomy('acf-ooj-infection', 'oojInfections');
-                    mapEmbeddedTaxonomy('acf-ooj-activity', 'oojActivities');
-                    mapEmbeddedTaxonomy('iccr_method-of-transmitting', 'methodsOfTransmitting');
-                    mapEmbeddedTaxonomy('acceptable-for-pii', 'acceptableForPiis');
 
-                    console.log("Final mapped object for item", item.id, ":", mapped);
-                    return mapped;
-                });
+                        console.log("Final mapped object for item", item.id, ":", mapped);
+                        return mapped;
+                    }).filter(item => item !== null);
+                } catch (error) {
+                    console.error("Error during map operation in OOJ parse:", error, "Data being processed:", dataToProcess);
+                    return [];
+                }
             },
             error: function(e) {
                 console.error("DataSource error in OOJ Grid:", e);
@@ -819,7 +838,8 @@ function initializeOOJGrid(jurisdictionId) {
         columns: [
              {
                 field: "oojInfections", 
-                headerTemplate: "OOJ Infections <span class='header-tooltip-icon'>&#9432;</span>",
+                title: "Infection",
+                headerTemplate: "Infections <span class='header-tooltip-icon'>&#9432;</span>",
                 width: 180,
                 headerAttributes: { "data-tooltip-content": "Select the primary infection type related to the Out-of-Jurisdiction case." },
                 template: createTaxonomyTemplate("oojInfections"), 
@@ -833,39 +853,67 @@ function initializeOOJGrid(jurisdictionId) {
             },
             {
                 field: "oojActivities", 
-                headerTemplate: "OOJ Activities <span class='header-tooltip-icon'>&#9432;</span>",
+                title: "Activity",
+                headerTemplate: "Activity <span class='header-tooltip-icon'>&#9432;</span>",
                 width: 180,
                  headerAttributes: { "data-tooltip-content": "Select the activity or activities performed for this case." },
                 template: createTaxonomyTemplate("oojActivities"), 
                 editor: function(container, options) { 
-                    createMultiSelectEditor(container, options, { 
+                    createSingleSelectEditor(container, options, { 
                         fieldName: "oojActivities", 
                         dataSource: oojActivitiesData, 
-                        placeholder: "Select Activities..." 
+                        placeholder: "Select Activity..." 
                     }); 
                 } 
             },
             { 
                 field: "lastDateOfExposure", 
-                headerTemplate: "Last Exposure Dt <span class='header-tooltip-icon'>&#9432;</span>",
+                title: "Last Date of Exposure",
+                headerTemplate: "Last Date of Exposure <span class='header-tooltip-icon'>&#9432;</span>",
                 width: 150,
                  headerAttributes: { "data-tooltip-content": "Enter the estimated last date of exposure relevant to the case." }
             },
             { 
                 field: "dispositionsReturned", 
-                headerTemplate: "Dispositions Returned <span class='header-tooltip-icon'>&#9432;</span>",
+                title: "Dispo/Info Returned",
+                headerTemplate: "Dispo/Info Returned <span class='header-tooltip-icon'>&#9432;</span>",
                 width: 160,
                 headerAttributes: { "data-tooltip-content": "Enter any disposition information returned for this case." }
             },
             {
-                field: "acceptAndInvestigate", 
-                headerTemplate: "Accept & Investigate <span class='header-tooltip-icon'>&#9432;</span>",
-                width: 160,
-                headerAttributes: { "data-tooltip-content": "Indicate if the case was accepted and investigated." }
+                field: "methodsOfTransmitting", 
+                title: "Method(s) of Transmitting",
+                headerTemplate: "Method(s) of Transmitting <span class='header-tooltip-icon'>&#9432;</span>", 
+                width: 180,
+                headerAttributes: { "data-tooltip-content": "Select the method(s) used for transmitting information for this case." }, 
+                template: createTaxonomyTemplate("methodsOfTransmitting"), 
+                editor: function(container, options) { 
+                    createMultiSelectEditor(container, options, { 
+                        fieldName: "methodsOfTransmitting", 
+                        dataSource: methodsTransmittingData, 
+                        placeholder: "Select Methods..." 
+                    }); 
+                } 
+            },                      
+            {
+                field: "acceptableForPiis", 
+                title: "Acceptable for PII",
+                headerTemplate: "Acceptable for PII <span class='header-tooltip-icon'>&#9432;</span>",
+                width: 180,
+                headerAttributes: { "data-tooltip-content": "Select the types of Personally Identifiable Information acceptable for transmission." },
+                template: createTaxonomyTemplate("acceptableForPiis"), 
+                editor: function(container, options) { 
+                    createMultiSelectEditor(container, options, { 
+                        fieldName: "acceptableForPiis", 
+                        dataSource: acceptablePiisData, 
+                        placeholder: "Select PII..." 
+                    }); 
+                } 
             },
             {
                 field: "oojPhone",
-                headerTemplate: "OOJ Phone <span class='header-tooltip-icon'>&#9432;</span>",
+                title: "Phone",
+                headerTemplate: "Phone <span class='header-tooltip-icon'>&#9432;</span>",
                 headerAttributes: { "data-tooltip-content": "Phone number associated with the OOJ case details." }, 
                 width: 130,
                 template: function(dataItem) {
@@ -882,7 +930,8 @@ function initializeOOJGrid(jurisdictionId) {
             },
             {
                 field: "oojFax",
-                headerTemplate: "OOJ Fax <span class='header-tooltip-icon'>&#9432;</span>",
+                title: "Fax",
+                headerTemplate: "Fax <span class='header-tooltip-icon'>&#9432;</span>",
                 headerAttributes: { "data-tooltip-content": "Fax number associated with the OOJ case details." }, 
                 width: 130,
                 template: function(dataItem) {
@@ -899,41 +948,15 @@ function initializeOOJGrid(jurisdictionId) {
             },
             { 
                 field: "oojEmail", 
-                headerTemplate: "OOJ Email <span class='header-tooltip-icon'>&#9432;</span>", 
+                title: "Email",
+                headerTemplate: "Email <span class='header-tooltip-icon'>&#9432;</span>", 
                 headerAttributes: { "data-tooltip-content": "Email address associated with the OOJ case details." }, 
                 width: 180,
                 format: "{0:c}"
             },
             {
-                field: "methodsOfTransmitting", 
-                headerTemplate: "Transmission Methods <span class='header-tooltip-icon'>&#9432;</span>", 
-                width: 180,
-                headerAttributes: { "data-tooltip-content": "Select the method(s) used for transmitting information for this case." }, 
-                template: createTaxonomyTemplate("methodsOfTransmitting"), 
-                editor: function(container, options) { 
-                    createMultiSelectEditor(container, options, { 
-                        fieldName: "methodsOfTransmitting", 
-                        dataSource: methodsTransmittingData, 
-                        placeholder: "Select Methods..." 
-                    }); 
-                } 
-            },
-            {
-                field: "acceptableForPiis", 
-                headerTemplate: "Acceptable PII <span class='header-tooltip-icon'>&#9432;</span>",
-                width: 180,
-                headerAttributes: { "data-tooltip-content": "Select the types of Personally Identifiable Information acceptable for transmission." },
-                template: createTaxonomyTemplate("acceptableForPiis"), 
-                editor: function(container, options) { 
-                    createMultiSelectEditor(container, options, { 
-                        fieldName: "acceptableForPiis", 
-                        dataSource: acceptablePiisData, 
-                        placeholder: "Select PII..." 
-                    }); 
-                } 
-            },
-            {
                 field: "pointOfContacts", 
+                title: "Point of Contact",
                 headerTemplate: "Point of Contact <span class='header-tooltip-icon'>&#9432;</span>",
                 width: 180,
                  headerAttributes: { "data-tooltip-content": "Select the primary point of contact within your jurisdiction for this case." },
@@ -942,6 +965,7 @@ function initializeOOJGrid(jurisdictionId) {
             },
             {
                 field: "notes", 
+                title: "Notes",
                 headerTemplate: "Notes <span class='header-tooltip-icon'>&#9432;</span>",
                 width: 200,
                 headerAttributes: { "data-tooltip-content": "Enter any relevant notes for this OOJ case." }
