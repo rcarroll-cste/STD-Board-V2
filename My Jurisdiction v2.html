@@ -1,0 +1,969 @@
+<style>
+    .header-tooltip-icon {
+        margin-left: 5px; /* Add space between title and icon */
+        cursor: help;    /* Change cursor on hover */
+        font-style: normal; /* Ensure it's not italic */
+        /* Optional: Adjust color or size if needed */
+        /* color: blue; */
+        /* font-size: 0.9em; */
+    }
+</style>
+<script>
+// Global Variables for Data
+var hivRolesData = [];
+var stiRolesData = [];
+var oojInfectionsData = [];
+var oojActivitiesData = [];
+var methodsTransmittingData = [];
+var acceptablePiisData = [];
+var contactsData = [];
+
+$(document).ready(function () {
+     
+    var stdBaseUrl = "https://hivstiooj.cste.org/wp-json/wp/v2";
+
+    Promise.all([
+        // Fetch HIV Roles
+        $.ajax({
+            url: stdBaseUrl + '/hiv-role?_fields=id,name&per_page=100', // Adjust endpoint if needed
+            method: 'GET',
+            beforeSend: function(xhr) {
+                if (typeof wpApiSettings !== 'undefined' && wpApiSettings.nonce) {
+                    xhr.setRequestHeader('X-WP-Nonce', wpApiSettings.nonce);
+                }
+            }
+        }).then(data => {
+            hivRolesData = data;
+            return data;
+        }).catch(error => {
+            hivRolesData = [];
+            return [];
+        }),
+        // Fetch STI Roles
+        $.ajax({
+            url: stdBaseUrl + '/sti-role?_fields=id,name&per_page=100', // Adjust endpoint if needed
+            method: 'GET',
+            beforeSend: function(xhr) {
+                if (typeof wpApiSettings !== 'undefined' && wpApiSettings.nonce) {
+                    xhr.setRequestHeader('X-WP-Nonce', wpApiSettings.nonce);
+                }
+            }
+        }).then(data => {
+            stiRolesData = data;
+            return data;
+        }).catch(error => {
+            stiRolesData = [];
+            return [];
+        }),
+        // Fetch OOJ Taxonomies and Contacts
+        $.ajax({
+            url: stdBaseUrl + '/acf-ooj-infection?_fields=id,name&per_page=100',
+            method: 'GET',
+            beforeSend: function(xhr) { if (typeof wpApiSettings !== 'undefined' && wpApiSettings.nonce) { xhr.setRequestHeader('X-WP-Nonce', wpApiSettings.nonce); } }
+        }).then(data => { oojInfectionsData = data.map(term => ({ id: term.id, databaseId: term.id, name: term.name })); return data; })
+          .catch(error => { oojInfectionsData = []; return []; }),
+        $.ajax({
+            url: stdBaseUrl + '/acf-ooj-activity?_fields=id,name&per_page=100',
+            method: 'GET',
+            beforeSend: function(xhr) { if (typeof wpApiSettings !== 'undefined' && wpApiSettings.nonce) { xhr.setRequestHeader('X-WP-Nonce', wpApiSettings.nonce); } }
+        }).then(data => { oojActivitiesData = data.map(term => ({ id: term.id, databaseId: term.id, name: term.name })); return data; })
+          .catch(error => { oojActivitiesData = []; return []; }),
+        $.ajax({
+            url: stdBaseUrl + '/iccr_method-of-transmitting?_fields=id,name&per_page=100',
+            method: 'GET',
+            beforeSend: function(xhr) { if (typeof wpApiSettings !== 'undefined' && wpApiSettings.nonce) { xhr.setRequestHeader('X-WP-Nonce', wpApiSettings.nonce); } }
+        }).then(data => { methodsTransmittingData = data.map(term => ({ id: term.id, databaseId: term.id, name: term.name })); return data; })
+          .catch(error => { methodsTransmittingData = []; return []; }),
+        $.ajax({
+            url: stdBaseUrl + '/acceptable-for-pii?_fields=id,name&per_page=100',
+            method: 'GET',
+            beforeSend: function(xhr) { if (typeof wpApiSettings !== 'undefined' && wpApiSettings.nonce) { xhr.setRequestHeader('X-WP-Nonce', wpApiSettings.nonce); } }
+        }).then(data => { acceptablePiisData = data.map(term => ({ id: term.id, databaseId: term.id, name: term.name })); return data; })
+          .catch(error => { acceptablePiisData = []; return []; }),
+        $.ajax({
+            url: stdBaseUrl + "/users?_fields=id,first_name,last_name&context=edit&per_page=100", // Fetch limited fields needed for POC dropdown
+            dataType: "json",
+            beforeSend: function(xhr) {
+                 if (typeof wpApiSettings !== 'undefined' && wpApiSettings.nonce) {
+                    xhr.setRequestHeader('X-WP-Nonce', wpApiSettings.nonce);
+                } else {
+                    console.error("Fetch Contacts: wpApiSettings.nonce is missing!");
+                }
+            }
+        }).then(data => {
+            contactsData = data.map(user => ({
+                id: user.id, // Use WordPress User ID as databaseId for consistency
+                databaseId: user.id,
+                firstName: user.first_name || "",
+                lastName: user.last_name || "",
+                name: `${user.first_name || ""} ${user.last_name || ""}`.trim()
+            }));
+            return data;
+        }).catch(error => {
+            contactsData = [];
+            return [];
+        })
+    ]).then(() => {
+        getCurrentUserJurisdictionId().then(jurisdictionId => {
+            initializeJurisdictionGrid(jurisdictionId);
+            initializeUserGrid(jurisdictionId);
+            initializeOOJGrid(jurisdictionId);
+        }).catch(error => {
+            console.error("Failed to get jurisdiction ID:", error);
+        });
+    }); 
+   
+
+    function initializeJurisdictionGrid(jurisdictionId) {
+        var stdBaseUrl = "https://hivstiooj.cste.org/wp-json/wp/v2";
+
+            jurisdictionDataSource = new kendo.data.DataSource({
+                transport: {
+                    read: {
+                        url: stdBaseUrl + "/std_jurisdiction/" + jurisdictionId + "?_fields=id,title,modified,acf", 
+                        dataType: "json"
+                    },
+                    update: {
+                        url: stdBaseUrl + "/std_jurisdiction/"+ jurisdictionId,
+                        method: "POST",
+                        dataType: "json", 
+                        contentType: "application/x-www-form-urlencoded", 
+                        beforeSend: function(xhr) {
+                            xhr.setRequestHeader('X-WP-Nonce', wpApiSettings.nonce);
+                        }
+                    },
+                    parameterMap: function(options, operation) {
+                        if (operation === "update" || operation === "create") { 
+                            
+                            var payload = {
+                                title: options.title ? options.title.rendered : '', 
+                                acf: options.acf 
+                            };
+                            
+                            var dataToSend = $.param(payload);
+                            return dataToSend;
+                        }
+                        return undefined; 
+                    }
+                },
+                schema: {
+                    model: {
+                        id: "id",
+                        fields: {
+                            id: { editable: false, nullable: true },
+                            title: { 
+                                defaultValue: { rendered: "" },
+                                editable: true 
+                            },
+                            modified: { editable: false, type: "date" },
+                            acf: { 
+                                type: "object", 
+                                defaultValue: {}, 
+                                editable: true,   
+                                fields: {
+                                    agency_name: { type: "string", editable: true },
+                                    address_jurisdiction: { type: "string", editable: true },
+                                    phone_jurisdiction: { type: "string", editable: true },
+                                }
+                            }
+                        }
+                    },
+                    parse: function(response) {
+                        if (response && typeof response === 'object' && !Array.isArray(response)) {
+                            if (!response.acf) {
+                              response.acf = {}; 
+                            } else {
+                            }
+                            if (!response.title || typeof response.title.rendered === 'undefined') {
+                              response.title = { rendered: "" };
+                            }
+                            return [response]; 
+                        }
+                        return response; 
+                    }
+                }
+            });
+
+        $("#jurisdictionGrid").kendoGrid({
+            dataSource: jurisdictionDataSource,
+            pageable: false,
+            scrollable: false,
+            toolbar: ["save", "cancel"], 
+            columns: [
+                { field: "title.rendered", title: "Jurisdiction Name" }, 
+                { field: "acf.agency_name", title: "Agency Name" }, 
+                { field: "acf.address_jurisdiction", title: "Address" },
+                { field: "acf.phone_jurisdiction", title: "Phone" },
+              
+                { field: "modified", title: "Last Updated", format: "{0:yyyy-MM-dd}" },
+                { command: ["edit"], title: "&nbsp;", width: "120px" }
+            ],
+            editable: "inline" 
+        });
+    }
+
+    function initializeUserGrid(jurisdictionId) {
+
+        var stdBaseUrl = "https://hivstiooj.cste.org/wp-json/wp/v2";
+        var usersDataSource = new kendo.data.DataSource({
+            transport: {
+                read: {
+                    url: stdBaseUrl + "/users?_fields=id,first_name,last_name,email,acf&context=edit&acf_user_jurisdiction=" + jurisdictionId, // Make sure acf is requested
+                    dataType: "json",
+                    beforeSend: function(xhr) {
+                         if (typeof wpApiSettings !== 'undefined' && wpApiSettings.nonce) {
+                            xhr.setRequestHeader('X-WP-Nonce', wpApiSettings.nonce);
+                        } else {
+                            console.error("Read Users: wpApiSettings.nonce is missing!");
+                        }
+                    }
+                },
+                update: {
+                    url: function(options) {
+                        return stdBaseUrl + "/users/" + options.id;
+                    },
+                    method: "POST",
+                    dataType: "json",
+                    contentType: "application/json; charset=utf-8", 
+                    beforeSend: function(xhr) {
+                        if (typeof wpApiSettings !== 'undefined' && wpApiSettings.nonce) {
+                            xhr.setRequestHeader('X-WP-Nonce', wpApiSettings.nonce);
+                        } else {
+                            console.error("Update User: wpApiSettings.nonce is missing!");
+                        }
+                    }
+                },
+                create: {
+                    url: stdBaseUrl + "/users", // Base endpoint for creating users
+                    method: "POST",
+                    dataType: "json",
+                    contentType: "application/json; charset=utf-8",
+                    beforeSend: function(xhr) {
+                        if (typeof wpApiSettings !== 'undefined' && wpApiSettings.nonce) {
+                            xhr.setRequestHeader('X-WP-Nonce', wpApiSettings.nonce);
+                        } else {
+                            console.error("Create User: wpApiSettings.nonce is missing!");
+                        }
+                    }
+                },
+                destroy: {
+                    url: function(options) { 
+                        return stdBaseUrl + "/users/" + options.id + "?force=true&reassign=1"; 
+                    },
+                    method: "DELETE",
+                    dataType: "json", // Expect JSON response (might be minimal on success)
+                    beforeSend: function(xhr) {
+                        if (typeof wpApiSettings !== 'undefined' && wpApiSettings.nonce) {
+                            xhr.setRequestHeader('X-WP-Nonce', wpApiSettings.nonce);
+                        } else {
+                            console.error("Destroy User: wpApiSettings.nonce is missing!");
+                        }
+                    }
+                },
+                parameterMap: function(options, operation) {
+                    if (operation === "update") {
+                        var payload = {
+                            first_name: options.first_name,
+                            last_name: options.last_name,
+                            email: options.email,
+                            acf: {
+                               user_phone: options.acf.user_phone || "",
+                               user_fax: options.acf.user_fax || "",
+                               notes_sti_hiv: options.acf.notes_sti_hiv || "",
+                               hiv_role: options.acf.hiv_role || [],
+                               sti_role: options.acf.sti_role || [],
+                               user_jurisdiction: jurisdictionId
+                            }
+                        };
+                        return JSON.stringify(payload);
+                    }
+                    else if (operation === "create") {
+                        const username = options.email ? options.email.split('@')[0].replace(/[^a-zA-Z0-9._-]/g, "") : "new_user_" + Date.now();
+                        const password = generateSecurePassword();
+
+                        var createPayload = {
+                            username: username,
+                            email: options.email,
+                            password: password,
+                            first_name: options.first_name || "",
+                            last_name: options.last_name || "",
+                            roles: ["subscriber"],
+                            acf: {
+                               user_jurisdiction: jurisdictionId,
+                               user_phone: options.acf.user_phone || "",
+                               user_fax: options.acf.user_fax || "",
+                               notes_sti_hiv: options.acf.notes_sti_hiv || "",
+                               hiv_role: options.acf.hiv_role || [],
+                               sti_role: options.acf.sti_role || []
+                            }
+                        };
+                        return JSON.stringify(createPayload);
+                    }
+                    return options;
+                }
+            },
+            schema: {
+                model: {
+                    id: "id", 
+                    fields: {
+                        id: { editable: false, nullable: true },
+                        first_name: { type: "string", validation: { required: true } },
+                        last_name: { type: "string", validation: { required: true } },
+                        email: { type: "string", validation: { required: true, email: true } },
+                        acf: { 
+                            type: "object", 
+                            defaultValue: {
+                                user_phone: "",
+                                user_fax: "",
+                                notes_sti_hiv: "",
+                                hiv_role: [],
+                                sti_role: []
+                            }, 
+                            editable: true,
+                            fields: {
+                                user_phone: { type: "string", editable: true },
+                                user_fax: { type: "string", editable: true },
+                                notes_sti_hiv: { type: "string", editable: true },
+                                hiv_role: {
+                                    editable: true,
+                                    defaultValue: [],
+                                    validation: {
+                                        required: { message: "HIV Role is Required" }
+                                    }
+                                },
+                                sti_role: {
+                                    editable: true,
+                                    defaultValue: [],
+                                    validation: {
+                                        required: { message: "STI Role is Required" }
+                                    }
+                                }
+                            } 
+                        }
+                    }
+                },
+                parse: function(response) {
+                    console.log("Parsing user response:", response);
+                    if (Array.isArray(response)) {
+                        response.forEach(user => {
+                            if (!user.acf) {
+                                user.acf = {
+                                  user_phone: "",
+                                  user_fax: "",
+                                  notes_sti_hiv: "",
+                                  hiv_role: [],
+                                  sti_role: []
+                                }; 
+                            } else {
+                                if (!Array.isArray(user.acf.hiv_role)) user.acf.hiv_role = [];
+                                if (!Array.isArray(user.acf.sti_role)) user.acf.sti_role = [];
+                            }
+                        });
+                    }
+                    return response; 
+                },
+                 error: function(e) {
+                    console.error("DataSource error in Users Grid:", e);
+                    var grid = $("#usersGrid").data("kendoGrid");
+                     if (grid) {
+                         grid.cancelChanges();
+                     }
+                }
+            },
+
+        });
+
+        $("#userGrid").kendoGrid({
+            dataSource: usersDataSource,
+            pageable: false,
+            scrollable: false,
+            toolbar: ["create", "save", "cancel"],
+            columns: [
+                { field: "first_name", title: "First Name", width: "130px" },
+                { field: "last_name", title: "Last Name", width: "130px" },
+                { field: "email", title: "Email", width: "180px" },
+                { 
+                    field: "acf.user_phone", 
+                    title: "Phone", 
+                    width: "130px",
+                    template: function(dataItem) {
+                        const rawValue = dataItem.acf?.user_phone;
+                        if (typeof rawValue === 'string' || typeof rawValue === 'number') {
+                            const digits = String(rawValue).replace(/\D/g, '');
+                            if (digits.length === 10) {
+                                return `(${digits.substring(0, 3)}) ${digits.substring(3, 6)}-${digits.substring(6, 10)}`;
+                            }
+                            return digits;
+                        }
+                        return "—";
+                    },
+                    editor: function(container, options) {
+                        $('<input data-bind="value:' + options.field + '"/>')
+                            .appendTo(container)
+                            .kendoNumericTextBox({
+                                format: "0",
+                                decimals: 0,
+                                spinners: false
+                            });
+                    } 
+                },
+                { 
+                    field: "acf.user_fax", 
+                    title: "Fax", 
+                    width: "130px",
+                    template: function(dataItem) {
+                        const rawValue = dataItem.acf?.user_fax;
+                        if (typeof rawValue === 'string' || typeof rawValue === 'number') {
+                            const digits = String(rawValue).replace(/\D/g, '');
+                            if (digits.length === 10) {
+                                return `(${digits.substring(0, 3)}) ${digits.substring(3, 6)}-${digits.substring(6, 10)}`;
+                            }
+                            return digits;
+                        }
+                        return "—";
+                    },
+                    editor: function(container, options) {
+                        $('<input data-bind="value:' + options.field + '"/>')
+                            .appendTo(container)
+                            .kendoNumericTextBox({
+                                format: "0",
+                                decimals: 0,
+                                spinners: false
+                            });
+                    } 
+                },
+                { 
+                    field: "acf.hiv_role", 
+                    title: "HIV Roles", 
+                    width: "180px",
+                    template: function(dataItem) {
+                        if (!dataItem.acf || !dataItem.acf.hiv_role || dataItem.acf.hiv_role.length === 0) return "—";
+                        return dataItem.acf.hiv_role.map(roleId => {
+                            if (!Array.isArray(hivRolesData)) return `ID: ${roleId}`; 
+                            const role = hivRolesData.find(r => r.id === roleId);
+                            return role ? role.name : `ID: ${roleId}`;
+                        }).join(', ');
+                    },
+                    editor: hivRoleEditor
+                },
+                { 
+                    field: "acf.sti_role", 
+                    title: "STI Roles", 
+                    width: "180px",
+                    template: function(dataItem) {
+                        if (!dataItem.acf || !dataItem.acf.sti_role || dataItem.acf.sti_role.length === 0) return "—";
+                         return dataItem.acf.sti_role.map(roleId => {
+                            if (!Array.isArray(stiRolesData)) return `ID: ${roleId}`;
+                            const role = stiRolesData.find(r => r.id === roleId);
+                            return role ? role.name : `ID: ${roleId}`;
+                        }).join(', ');
+                    },
+                    editor: stiRoleEditor
+                },
+                { field: "acf.notes_sti_hiv", title: "Notes", width: "200px" },
+                { command: ["edit", "destroy"], title: "&nbsp;", width: "180px" } 
+            ],
+            editable: "inline"
+        });
+
+    }
+
+    function hivRoleEditor(container, options) {
+        $('<input name="acf.hiv_role" />')
+            .appendTo(container)
+            .kendoMultiSelect({
+                dataTextField: "name",
+                dataValueField: "id",
+                dataSource: hivRolesData, 
+                value: options.model.acf.hiv_role || [], 
+                valuePrimitive: true, 
+                autoClose: false,
+                change: function(e) {
+                   options.model.set(options.field, this.value());
+                }
+            });
+    }
+
+    function stiRoleEditor(container, options) {
+        $('<input name="acf.sti_role" />')
+            .appendTo(container)
+            .kendoMultiSelect({
+                dataTextField: "name",
+                dataValueField: "id",
+                dataSource: stiRolesData, 
+                value: options.model.acf.sti_role || [],
+                valuePrimitive: true, 
+                autoClose: false,
+                change: function(e) {
+                   options.model.set(options.field, this.value());
+                }
+            });
+    }
+
+});
+
+function getCurrentUserJurisdictionId() {
+    return new Promise((resolve, reject) => {
+        if (typeof wpApiSettings === 'undefined' || typeof wpApiSettings.nonce === 'undefined') {
+            const errorMsg = "Error: wpApiSettings or wpApiSettings.nonce is not defined. Ensure the nonce script runs in the header.";
+            console.error(errorMsg);
+            reject(new Error(errorMsg));
+            return;
+        }
+
+        const apiUrl = 'https://hivstiooj.cste.org/wp-json/wp/v2/users/me';
+
+        $.ajax({
+            url: apiUrl, 
+            method: 'GET',
+            beforeSend: function(xhr) {
+                xhr.setRequestHeader('X-WP-Nonce', wpApiSettings.nonce);
+            }
+        }).done(function(userData) {
+            const jurisdictionId = parseInt(userData?.acf?.user_jurisdiction, 10);
+            console.log("Fetched user data, jurisdiction ID from ACF:", jurisdictionId);
+            resolve(isNaN(jurisdictionId) ? 0 : jurisdictionId);
+        }).fail(function(jqXHR, textStatus, errorThrown) {
+            console.error(`Error fetching user data via REST API (${apiUrl}): ${textStatus}`, errorThrown, jqXHR.responseText);
+            reject(new Error(`Failed to fetch user data: ${textStatus}`));
+        });
+    });
+}
+
+function generateSecurePassword(length = 12) {
+    const upperChars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    const lowerChars = 'abcdefghijklmnopqrstuvwxyz';
+    const numbers = '0123456789';
+    const specialChars = '!@#$%^&*()_+[]{}|;:,.<>?'; 
+    
+    const allChars = upperChars + lowerChars + numbers + specialChars;
+    let password = '';
+    
+    password += upperChars.charAt(Math.floor(Math.random() * upperChars.length));
+    password += lowerChars.charAt(Math.floor(Math.random() * lowerChars.length));
+    password += numbers.charAt(Math.floor(Math.random() * numbers.length));
+    password += specialChars.charAt(Math.floor(Math.random() * specialChars.length));
+    
+    for (let i = password.length; i < length; i++) {
+        password += allChars.charAt(Math.floor(Math.random() * allChars.length));
+    }
+    
+    password = password.split('').sort(() => 0.5 - Math.random()).join('');
+    
+    console.log("Generated temporary password.");
+    return password;
+}
+
+function createTaxonomyTemplate(fieldName) {
+    return function(dataItem) {
+        const items = dataItem[fieldName];
+        if (Array.isArray(items) && items.length > 0) {
+            return items.map(item => (item && typeof item === 'object' && item.name) ? item.name : 'Invalid Item').join(', ');
+        }
+        return '—';
+    };
+}
+
+function createSingleSelectEditor(container, options, config) {
+    $('<input name="' + config.fieldName + '" />')
+        .appendTo(container)
+        .kendoDropDownList({
+            dataTextField: "name",
+            dataValueField: "id",
+            dataSource: config.dataSource,
+            optionLabel: config.placeholder || "Select...",
+            value: options.model[config.fieldName] && options.model[config.fieldName].length > 0 ? options.model[config.fieldName][0].id : null,
+            change: function(e) {
+                const selectedId = this.value();
+                const selectedItem = config.dataSource.find(item => item.id == selectedId);
+                options.model.set(config.fieldName, selectedItem ? [selectedItem] : []);
+            }
+        });
+}
+
+function createMultiSelectEditor(container, options, config) {
+    $('<input name="' + config.fieldName + '" />')
+        .appendTo(container)
+        .kendoMultiSelect({
+            dataTextField: "name",
+            dataValueField: "id",
+            dataSource: config.dataSource,
+            placeholder: config.placeholder || "Select...",
+            value: options.model[config.fieldName] ? options.model[config.fieldName].map(item => item.id) : [],
+            autoClose: false,
+            change: function(e) {
+                const selectedIds = this.value();
+                const selectedItems = selectedIds.map(id => config.dataSource.find(item => item.id == id)).filter(item => item);
+                options.model.set(config.fieldName, selectedItems);
+            }
+        });
+}
+
+function initializeOOJGrid(jurisdictionId) {
+    var stdBaseUrl = "https://hivstiooj.cste.org/wp-json/wp/v2";
+
+    function extractIds(items) {
+        if (!Array.isArray(items) || items.length === 0) return [];
+        return items.map(item => item && typeof item === 'object' ? item.id : item).filter(id => id !== null && id !== undefined);
+    }
+
+    var oojDataSource = new kendo.data.DataSource({
+        transport: {
+            read: {
+                url: stdBaseUrl + "/ooj-detail?jurisdiction=" + jurisdictionId + "&_embed&per_page=100",
+                dataType: "json",
+                beforeSend: function(xhr) {
+                    if (typeof wpApiSettings !== 'undefined' && wpApiSettings.nonce) {
+                        xhr.setRequestHeader('X-WP-Nonce', wpApiSettings.nonce);
+                    } else { console.error('OOJ Read: wpApiSettings.nonce is missing!'); }
+                }
+            },
+            create: {
+                url: stdBaseUrl + "/ooj-detail",
+                method: "POST",
+                dataType: "json",
+                contentType: "application/json; charset=utf-8",
+                beforeSend: function(xhr) {
+                    if (typeof wpApiSettings !== 'undefined' && wpApiSettings.nonce) {
+                        xhr.setRequestHeader('X-WP-Nonce', wpApiSettings.nonce);
+                    } else { console.error('OOJ Create: wpApiSettings.nonce is missing!'); }
+                }
+            },
+            update: {
+                url: function(options) { return stdBaseUrl + "/ooj-detail/" + options.id; },
+                method: "POST",
+                dataType: "json",
+                contentType: "application/json; charset=utf-8",
+                beforeSend: function(xhr) {
+                    if (typeof wpApiSettings !== 'undefined' && wpApiSettings.nonce) {
+                        xhr.setRequestHeader('X-WP-Nonce', wpApiSettings.nonce);
+                    } else { console.error('OOJ Update: wpApiSettings.nonce is missing!'); }
+                }
+            },
+            destroy: {
+                url: function(options) { return stdBaseUrl + "/ooj-detail/" + options.id + "?force=true"; },
+                method: "DELETE",
+                beforeSend: function(xhr) {
+                    if (typeof wpApiSettings !== 'undefined' && wpApiSettings.nonce) {
+                        xhr.setRequestHeader('X-WP-Nonce', wpApiSettings.nonce);
+                    } else { console.error('OOJ Destroy: wpApiSettings.nonce is missing!'); }
+                }
+            },
+            parameterMap: function(options, operation) {
+                if (operation === "create" || operation === "update") {
+                    console.log(`OOJ parameterMap (${operation}):`, options);
+                    const payload = {
+                        title: options.title || "OOJ Detail",
+                        status: "publish",
+                        acf: {
+                            jurisdiction_selection: jurisdictionId,
+                            last_date_of_exposure: options.lastDateOfExposure || "",
+                            dispositions_returned: options.dispositionsReturned || "",
+                            accept_and_investigate: options.acceptAndInvestigate || "",
+                            notes: options.notes || "",
+                            point_of_contacts: extractIds(options.pointOfContacts),
+                            ooj_phone: options.oojPhone || "",
+                            ooj_fax: options.oojFax || "",
+                            ooj_email: options.oojEmail || ""
+                        },
+                        "acf-ooj-infection": extractIds(options.oojInfections),
+                        "acf-ooj-activity": extractIds(options.oojActivities),
+                        "iccr_method-of-transmitting": extractIds(options.methodsOfTransmitting),
+                        "acceptable-for-pii": extractIds(options.acceptableForPiis)
+                    };
+                    console.log(`OOJ Payload (${operation}):`, payload);
+                    return JSON.stringify(payload);
+                }
+                return options;
+            }
+        },
+        schema: {
+            model: {
+                id: "id",
+                fields: {
+                    id: { editable: false, nullable: true },
+                    title: { type: "string", defaultValue: "OOJ Detail" },
+                    oojInfections: { defaultValue: [] },
+                    oojActivities: { defaultValue: [] },
+                    lastDateOfExposure: { type: "string" },
+                    dispositionsReturned: { type: "string" },
+                    acceptAndInvestigate: { type: "string" },
+                    methodsOfTransmitting: { defaultValue: [] },
+                    acceptableForPiis: { defaultValue: [] },
+                    pointOfContacts: {
+                        defaultValue: [],
+                        validation: { required: true, min: 1, message: "Point of Contact is required" } 
+                    },
+                    notes: { type: "string" },
+                    oojPhone: { type: "string" },
+                    oojFax: { type: "string" },
+                    oojEmail: { type: "string", validation: { email: true } } 
+                }
+            },
+            parse: function(response) {
+                console.log("Parsing OOJ response (using _embed):", response);
+                if (!Array.isArray(response)) {
+                     console.warn("OOJ parse: Response is not an array", response);
+                    if (response && typeof response === 'object' && response.id) {
+                        response = [response];
+                    } else {
+                         return []; 
+                    }
+                }
+
+                return response.map(item => {
+                    const acf = item.acf || {};
+                    const embedded = item._embedded || {}; 
+                    const embeddedTermArrays = embedded['wp:term'] || []; 
+                    console.log("Processing item:", item.id, "Raw Embedded Terms:", embeddedTermArrays); 
+
+                    const mapped = {
+                        id: item.id,
+                        title: item.title?.rendered || "OOJ Detail",
+                        lastDateOfExposure: acf.last_date_of_exposure || "",
+                        dispositionsReturned: acf.dispositions_returned || "",
+                        acceptAndInvestigate: acf.accept_and_investigate || "", 
+                        notes: acf.notes || "",
+                        pointOfContacts: [],
+                        oojInfections: [],
+                        oojActivities: [],
+                        methodsOfTransmitting: [],
+                        acceptableForPiis: [],
+                        oojPhone: acf.ooj_phone || "",
+                        oojFax: acf.ooj_fax || "",
+                        oojEmail: acf.ooj_email || ""
+                    };
+
+                    const contactIds = acf.point_of_contacts;
+                    if (Array.isArray(contactIds)) {
+                        console.log("Raw Contact IDs:", contactIds, "Global contactsData:", contactsData); 
+                        mapped.pointOfContacts = contactIds.map(userId => {
+                            const user = contactsData.find(c => c.id == userId); 
+                            console.log(`Finding contact ID ${userId} -> Found:`, user); 
+                            return user ? user : { id: userId, name: `Unknown (${userId})` }; 
+                        }).filter(u => u);
+                         console.log("Mapped POC:", mapped.pointOfContacts); 
+                    }
+
+                    const mapEmbeddedTaxonomy = (apiTaxonomyKey, targetField) => {
+                        let foundTerms = [];
+                        for (const termArray of embeddedTermArrays) {
+                            if (Array.isArray(termArray) && termArray.length > 0 && termArray[0].taxonomy === apiTaxonomyKey) {
+                                foundTerms = termArray.map(term => ({
+                                    id: term.id, 
+                                    name: term.name
+                                }));
+                                break;
+                            }
+                        }
+                        console.log(`Found terms for ${apiTaxonomyKey}:`, foundTerms); 
+                        mapped[targetField] = foundTerms;
+                         console.log(`Mapped ${targetField}:`, mapped[targetField]);
+                    };
+                    
+                    mapEmbeddedTaxonomy('acf-ooj-infection', 'oojInfections');
+                    mapEmbeddedTaxonomy('acf-ooj-activity', 'oojActivities');
+                    mapEmbeddedTaxonomy('iccr_method-of-transmitting', 'methodsOfTransmitting');
+                    mapEmbeddedTaxonomy('acceptable-for-pii', 'acceptableForPiis');
+
+                    console.log("Final mapped object for item", item.id, ":", mapped);
+                    return mapped;
+                });
+            },
+            error: function(e) {
+                console.error("DataSource error in OOJ Grid:", e);
+                let message = "An error occurred processing the OOJ data.";
+                if (e.xhr && e.xhr.responseJSON && e.xhr.responseJSON.message) {
+                    message = e.xhr.responseJSON.message;
+                } else if (e.errors) {
+                    message = Array.isArray(e.errors) ? e.errors.join(", ") : String(e.errors);
+                }
+                alert("Error: " + message);
+
+                var grid = $("#OojGrid").data("kendoGrid");
+                 if (grid) {
+                     grid.cancelChanges();
+                 }
+            }
+        }
+    });
+
+    function createPointOfContactsTemplate() {
+        return function(dataItem) {
+            const contact = dataItem.pointOfContacts && dataItem.pointOfContacts.length > 0 ? dataItem.pointOfContacts[0] : null;
+            return contact ? contact.name : '—';
+        };
+    }
+
+    function createPointOfContactsEditor(container, options) {
+        $('<input required name="' + options.field + '" data-required-msg="Point of Contact is required"/>') 
+            .appendTo(container)
+            .kendoDropDownList({
+                dataTextField: "name",
+                dataValueField: "id",
+                dataSource: contactsData,
+                value: options.model.pointOfContacts && options.model.pointOfContacts.length > 0 ? options.model.pointOfContacts[0].id : null,
+                change: function(e) {
+                    const selectedId = this.value();
+                    const selectedUser = contactsData.find(c => c.id == selectedId);
+                    options.model.set(options.field, selectedUser ? [selectedUser] : []);
+                }
+            });
+    }
+
+    $("#OojGrid").kendoGrid({
+        dataSource: oojDataSource,
+        pageable: false,
+        scrollable: false,
+        toolbar: ["create", "save", "cancel"], 
+        columns: [
+             {
+                field: "oojInfections", 
+                headerTemplate: "OOJ Infections <span class='header-tooltip-icon'>&#9432;</span>",
+                width: 180,
+                headerAttributes: { "data-tooltip-content": "Select the primary infection type related to the Out-of-Jurisdiction case." },
+                template: createTaxonomyTemplate("oojInfections"), 
+                editor: function(container, options) { 
+                    createSingleSelectEditor(container, options, { 
+                        fieldName: "oojInfections", 
+                        dataSource: oojInfectionsData, 
+                        placeholder: "Select Infection..." 
+                    }); 
+                }
+            },
+            {
+                field: "oojActivities", 
+                headerTemplate: "OOJ Activities <span class='header-tooltip-icon'>&#9432;</span>",
+                width: 180,
+                 headerAttributes: { "data-tooltip-content": "Select the activity or activities performed for this case." },
+                template: createTaxonomyTemplate("oojActivities"), 
+                editor: function(container, options) { 
+                    createMultiSelectEditor(container, options, { 
+                        fieldName: "oojActivities", 
+                        dataSource: oojActivitiesData, 
+                        placeholder: "Select Activities..." 
+                    }); 
+                } 
+            },
+            { 
+                field: "lastDateOfExposure", 
+                headerTemplate: "Last Exposure Dt <span class='header-tooltip-icon'>&#9432;</span>",
+                width: 150,
+                 headerAttributes: { "data-tooltip-content": "Enter the estimated last date of exposure relevant to the case." }
+            },
+            { 
+                field: "dispositionsReturned", 
+                headerTemplate: "Dispositions Returned <span class='header-tooltip-icon'>&#9432;</span>",
+                width: 160,
+                headerAttributes: { "data-tooltip-content": "Enter any disposition information returned for this case." }
+            },
+            {
+                field: "acceptAndInvestigate", 
+                headerTemplate: "Accept & Investigate <span class='header-tooltip-icon'>&#9432;</span>",
+                width: 160,
+                headerAttributes: { "data-tooltip-content": "Indicate if the case was accepted and investigated." }
+            },
+            {
+                field: "oojPhone",
+                headerTemplate: "OOJ Phone <span class='header-tooltip-icon'>&#9432;</span>",
+                headerAttributes: { "data-tooltip-content": "Phone number associated with the OOJ case details." }, 
+                width: 130,
+                template: function(dataItem) {
+                    const rawValue = dataItem.oojPhone;
+                    if (typeof rawValue === 'string' || typeof rawValue === 'number') {
+                        const digits = String(rawValue).replace(/\D/g, ''); 
+                        if (digits.length === 10) {
+                            return `(${digits.substring(0, 3)}) ${digits.substring(3, 6)}-${digits.substring(6, 10)}`;
+                        }
+                        return digits;
+                    }
+                    return "—"; 
+                }
+            },
+            {
+                field: "oojFax",
+                headerTemplate: "OOJ Fax <span class='header-tooltip-icon'>&#9432;</span>",
+                headerAttributes: { "data-tooltip-content": "Fax number associated with the OOJ case details." }, 
+                width: 130,
+                template: function(dataItem) {
+                    const rawValue = dataItem.oojFax;
+                    if (typeof rawValue === 'string' || typeof rawValue === 'number') {
+                        const digits = String(rawValue).replace(/\D/g, ''); 
+                        if (digits.length === 10) {
+                            return `(${digits.substring(0, 3)}) ${digits.substring(3, 6)}-${digits.substring(6, 10)}`;
+                        }
+                        return digits;
+                    }
+                    return "—";
+                }
+            },
+            { 
+                field: "oojEmail", 
+                headerTemplate: "OOJ Email <span class='header-tooltip-icon'>&#9432;</span>", 
+                headerAttributes: { "data-tooltip-content": "Email address associated with the OOJ case details." }, 
+                width: 180,
+                format: "{0:c}"
+            },
+            {
+                field: "methodsOfTransmitting", 
+                headerTemplate: "Transmission Methods <span class='header-tooltip-icon'>&#9432;</span>", 
+                width: 180,
+                headerAttributes: { "data-tooltip-content": "Select the method(s) used for transmitting information for this case." }, 
+                template: createTaxonomyTemplate("methodsOfTransmitting"), 
+                editor: function(container, options) { 
+                    createMultiSelectEditor(container, options, { 
+                        fieldName: "methodsOfTransmitting", 
+                        dataSource: methodsTransmittingData, 
+                        placeholder: "Select Methods..." 
+                    }); 
+                } 
+            },
+            {
+                field: "acceptableForPiis", 
+                headerTemplate: "Acceptable PII <span class='header-tooltip-icon'>&#9432;</span>",
+                width: 180,
+                headerAttributes: { "data-tooltip-content": "Select the types of Personally Identifiable Information acceptable for transmission." },
+                template: createTaxonomyTemplate("acceptableForPiis"), 
+                editor: function(container, options) { 
+                    createMultiSelectEditor(container, options, { 
+                        fieldName: "acceptableForPiis", 
+                        dataSource: acceptablePiisData, 
+                        placeholder: "Select PII..." 
+                    }); 
+                } 
+            },
+            {
+                field: "pointOfContacts", 
+                headerTemplate: "Point of Contact <span class='header-tooltip-icon'>&#9432;</span>",
+                width: 180,
+                 headerAttributes: { "data-tooltip-content": "Select the primary point of contact within your jurisdiction for this case." },
+                template: createPointOfContactsTemplate(), 
+                editor: createPointOfContactsEditor
+            },
+            {
+                field: "notes", 
+                headerTemplate: "Notes <span class='header-tooltip-icon'>&#9432;</span>",
+                width: 200,
+                headerAttributes: { "data-tooltip-content": "Enter any relevant notes for this OOJ case." }
+            },
+            { command: ["edit", "destroy"], title: "&nbsp;", width: "180px" }
+        ],
+        editable: "inline",
+         save: function(e) {
+            console.log("OOJ Grid save event. Model validation should occur.", e.model);
+        }
+    });
+
+    $("#OojGrid .k-grid-header").kendoTooltip({
+        filter: ".header-tooltip-icon",
+        position: "bottom",
+        content: function(e) {
+            var th = $(e.target).closest('th'); 
+            var tooltipContent = th.data("tooltip-content");
+            return tooltipContent || "No description";
+        },
+        width: 200,
+        showAfter: 750 
+    });
+}
+</script>
