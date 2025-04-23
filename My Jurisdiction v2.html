@@ -267,8 +267,8 @@ $(document).ready(function () {
                             last_name: options.last_name,
                             email: options.email,
                             acf: {
-                               user_phone: options.acf.user_phone || "",
-                               user_fax: options.acf.user_fax || "",
+                               user_phone: options.acf.user_phone != null ? String(options.acf.user_phone) : "",
+                               user_fax: options.acf.user_fax != null ? String(options.acf.user_fax) : "",
                                notes_sti_hiv: options.acf.notes_sti_hiv || "",
                                hiv_role: options.acf.hiv_role || [],
                                sti_role: options.acf.sti_role || [],
@@ -662,8 +662,8 @@ function initializeOOJGrid(jurisdictionId) {
                             accept_and_investigate: options.acceptAndInvestigate || "",
                             notes: options.notes || "",
                             point_of_contacts: extractIds(options.pointOfContacts),
-                            ooj_phone: options.oojPhone || "",
-                            ooj_fax: options.oojFax || "",
+                            ooj_phone: options.oojPhone != null ? String(options.oojPhone) : "",
+                            ooj_fax: options.oojFax != null ? String(options.oojFax) : "",
                             ooj_email: options.oojEmail || ""
                         },
                         "acf-ooj-infection": extractIds(options.oojInfections),
@@ -839,7 +839,7 @@ function initializeOOJGrid(jurisdictionId) {
              {
                 field: "oojInfections", 
                 title: "Infection",
-                headerTemplate: "Infections <span class='header-tooltip-icon'>&#9432;</span>",
+                //headerTemplate: "Infections <span class='header-tooltip-icon'>&#9432;</span>",
                 width: 180,
                 headerAttributes: { "data-tooltip-content": "Select the primary infection type related to the Out-of-Jurisdiction case." },
                 template: createTaxonomyTemplate("oojInfections"), 
@@ -854,7 +854,7 @@ function initializeOOJGrid(jurisdictionId) {
             {
                 field: "oojActivities", 
                 title: "Activity",
-                headerTemplate: "Activity <span class='header-tooltip-icon'>&#9432;</span>",
+                //headerTemplate: "Activity <span class='header-tooltip-icon'>&#9432;</span>",
                 width: 180,
                  headerAttributes: { "data-tooltip-content": "Select the activity or activities performed for this case." },
                 template: createTaxonomyTemplate("oojActivities"), 
@@ -871,19 +871,19 @@ function initializeOOJGrid(jurisdictionId) {
                 title: "Last Date of Exposure",
                 headerTemplate: "Last Date of Exposure <span class='header-tooltip-icon'>&#9432;</span>",
                 width: 150,
-                 headerAttributes: { "data-tooltip-content": "Enter the estimated last date of exposure relevant to the case." }
+                 headerAttributes: { "data-tooltip-content": "Timeframe within which a partner/contact's exposure to an infection is eligible for investigation (e.g. syphilis exposure that occurred within the past 90 days). Complete this when the Activity is Partner Services: Partner/Contact." }
             },
             { 
                 field: "dispositionsReturned", 
                 title: "Dispo/Info Returned",
                 headerTemplate: "Dispo/Info Returned <span class='header-tooltip-icon'>&#9432;</span>",
                 width: 160,
-                headerAttributes: { "data-tooltip-content": "Enter any disposition information returned for this case." }
+                headerAttributes: { "data-tooltip-content": "Indicate if/when you will return a disposition or information for requested activities." }
             },
             {
                 field: "methodsOfTransmitting", 
                 title: "Method(s) of Transmitting",
-                headerTemplate: "Method(s) of Transmitting <span class='header-tooltip-icon'>&#9432;</span>", 
+                //headerTemplate: "Method(s) of Transmitting <span class='header-tooltip-icon'>&#9432;</span>", 
                 width: 180,
                 headerAttributes: { "data-tooltip-content": "Select the method(s) used for transmitting information for this case." }, 
                 template: createTaxonomyTemplate("methodsOfTransmitting"), 
@@ -898,7 +898,7 @@ function initializeOOJGrid(jurisdictionId) {
             {
                 field: "acceptableForPiis", 
                 title: "Acceptable for PII",
-                headerTemplate: "Acceptable for PII <span class='header-tooltip-icon'>&#9432;</span>",
+                //headerTemplate: "Acceptable for PII <span class='header-tooltip-icon'>&#9432;</span>",
                 width: 180,
                 headerAttributes: { "data-tooltip-content": "Select the types of Personally Identifiable Information acceptable for transmission." },
                 template: createTaxonomyTemplate("acceptableForPiis"), 
@@ -913,7 +913,7 @@ function initializeOOJGrid(jurisdictionId) {
             {
                 field: "oojPhone",
                 title: "Phone",
-                headerTemplate: "Phone <span class='header-tooltip-icon'>&#9432;</span>",
+                //headerTemplate: "Phone <span class='header-tooltip-icon'>&#9432;</span>",
                 headerAttributes: { "data-tooltip-content": "Phone number associated with the OOJ case details." }, 
                 width: 130,
                 template: function(dataItem) {
@@ -931,7 +931,7 @@ function initializeOOJGrid(jurisdictionId) {
             {
                 field: "oojFax",
                 title: "Fax",
-                headerTemplate: "Fax <span class='header-tooltip-icon'>&#9432;</span>",
+                //headerTemplate: "Fax <span class='header-tooltip-icon'>&#9432;</span>",
                 headerAttributes: { "data-tooltip-content": "Fax number associated with the OOJ case details." }, 
                 width: 130,
                 template: function(dataItem) {
@@ -949,7 +949,7 @@ function initializeOOJGrid(jurisdictionId) {
             { 
                 field: "oojEmail", 
                 title: "Email",
-                headerTemplate: "Email <span class='header-tooltip-icon'>&#9432;</span>", 
+                //headerTemplate: "Email <span class='header-tooltip-icon'>&#9432;</span>", 
                 headerAttributes: { "data-tooltip-content": "Email address associated with the OOJ case details." }, 
                 width: 180,
                 format: "{0:c}"
@@ -957,7 +957,7 @@ function initializeOOJGrid(jurisdictionId) {
             {
                 field: "pointOfContacts", 
                 title: "Point of Contact",
-                headerTemplate: "Point of Contact <span class='header-tooltip-icon'>&#9432;</span>",
+                //headerTemplate: "Point of Contact <span class='header-tooltip-icon'>&#9432;</span>",
                 width: 180,
                  headerAttributes: { "data-tooltip-content": "Select the primary point of contact within your jurisdiction for this case." },
                 template: createPointOfContactsTemplate(), 
@@ -966,7 +966,7 @@ function initializeOOJGrid(jurisdictionId) {
             {
                 field: "notes", 
                 title: "Notes",
-                headerTemplate: "Notes <span class='header-tooltip-icon'>&#9432;</span>",
+                //headerTemplate: "Notes <span class='header-tooltip-icon'>&#9432;</span>",
                 width: 200,
                 headerAttributes: { "data-tooltip-content": "Enter any relevant notes for this OOJ case." }
             },
