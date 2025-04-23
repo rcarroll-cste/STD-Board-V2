@@ -153,16 +153,8 @@
                     "publish"
                 ],
                 "taxonomy": "",
-                "return_format": "id",
+                "return_format": "object",
                 "multiple": 0,
-                "max": "",
-                "save_custom": 0,
-                "save_post_status": "publish",
-                "acfe_add_post": 0,
-                "acfe_edit_post": 0,
-                "acfe_bidirectional": {
-                    "acfe_bidirectional_enabled": "0"
-                },
                 "allow_null": 0,
                 "allow_in_bindings": 0,
                 "bidirectional": 0,
@@ -171,9 +163,65 @@
                 "graphql_field_name": "jurisdictionSelection",
                 "graphql_connection_type": "one_to_many",
                 "ui": 1,
-                "bidirectional_target": [],
-                "save_post_type": "",
-                "min": ""
+                "bidirectional_target": []
+            },
+            {
+                "key": "field_6808e68a48935",
+                "label": "Infection",
+                "name": "infection",
+                "aria-label": "",
+                "type": "taxonomy",
+                "instructions": "",
+                "required": 1,
+                "conditional_logic": 0,
+                "wrapper": {
+                    "width": "",
+                    "class": "",
+                    "id": ""
+                },
+                "taxonomy": "acf-ooj-infection",
+                "add_term": 0,
+                "save_terms": 1,
+                "load_terms": 1,
+                "return_format": "object",
+                "field_type": "select",
+                "allow_null": 0,
+                "allow_in_bindings": 0,
+                "bidirectional": 0,
+                "show_in_graphql": 1,
+                "graphql_description": "",
+                "graphql_field_name": "infection",
+                "multiple": 0,
+                "bidirectional_target": []
+            },
+            {
+                "key": "field_6808e6d548936",
+                "label": "Activity",
+                "name": "activity",
+                "aria-label": "",
+                "type": "taxonomy",
+                "instructions": "",
+                "required": 1,
+                "conditional_logic": 0,
+                "wrapper": {
+                    "width": "",
+                    "class": "",
+                    "id": ""
+                },
+                "taxonomy": "acf-ooj-activity",
+                "add_term": 0,
+                "save_terms": 1,
+                "load_terms": 1,
+                "return_format": "object",
+                "field_type": "select",
+                "allow_null": 0,
+                "allow_in_bindings": 1,
+                "bidirectional": 0,
+                "show_in_graphql": 1,
+                "graphql_description": "",
+                "graphql_field_name": "activity",
+                "multiple": 0,
+                "bidirectional_target": []
             },
             {
                 "key": "field_67e35b079f619",
@@ -224,6 +272,35 @@
                 "graphql_description": "",
                 "graphql_field_name": "dispositionsReturned",
                 "graphql_non_null": 0
+            },
+            {
+                "key": "field_6808e766ea30f",
+                "label": "Acceptable for PII",
+                "name": "acceptable_for_pii",
+                "aria-label": "",
+                "type": "taxonomy",
+                "instructions": "",
+                "required": 0,
+                "conditional_logic": 0,
+                "wrapper": {
+                    "width": "",
+                    "class": "",
+                    "id": ""
+                },
+                "taxonomy": "acceptable-for-pii",
+                "add_term": 0,
+                "save_terms": 1,
+                "load_terms": 1,
+                "return_format": "object",
+                "field_type": "multi_select",
+                "allow_null": 1,
+                "allow_in_bindings": 0,
+                "bidirectional": 0,
+                "show_in_graphql": 1,
+                "graphql_description": "",
+                "graphql_field_name": "acceptableForPii",
+                "multiple": 0,
+                "bidirectional_target": []
             },
             {
                 "key": "field_67ffd5f620464",
@@ -460,26 +537,6 @@
                 "append": ""
             },
             {
-                "key": "field_663934d97c96d",
-                "label": "Confidential Phone",
-                "name": "confidential_phone",
-                "aria-label": "",
-                "type": "text",
-                "instructions": "",
-                "required": 0,
-                "conditional_logic": 0,
-                "wrapper": {
-                    "width": "",
-                    "class": "",
-                    "id": ""
-                },
-                "default_value": "",
-                "maxlength": "",
-                "placeholder": "",
-                "prepend": "",
-                "append": ""
-            },
-            {
                 "key": "field_6600967a7b848",
                 "label": "Fax",
                 "name": "user_fax",
@@ -577,7 +634,9 @@
         "menu_order": 0,
         "active": true,
         "taxonomy": "acceptable-for-pii",
-        "object_type": "",
+        "object_type": [
+            "ooj-detail"
+        ],
         "advanced_configuration": 1,
         "import_source": "",
         "import_date": "",
@@ -729,7 +788,9 @@
         "menu_order": 0,
         "active": true,
         "taxonomy": "iccr_method-of-transmitting",
-        "object_type": "",
+        "object_type": [
+            "ooj-detail"
+        ],
         "advanced_configuration": 1,
         "import_source": "",
         "import_date": "",
@@ -881,7 +942,9 @@
         "menu_order": 0,
         "active": true,
         "taxonomy": "acf-ooj-infection",
-        "object_type": "",
+        "object_type": [
+            "ooj-detail"
+        ],
         "advanced_configuration": 1,
         "import_source": "",
         "import_date": "",

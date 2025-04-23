@@ -22,95 +22,143 @@ $(document).ready(function () {
      
     var stdBaseUrl = "https://hivstiooj.cste.org/wp-json/wp/v2";
 
-    Promise.all([
-        // Fetch HIV Roles
-        $.ajax({
-            url: stdBaseUrl + '/hiv-role?_fields=id,name&per_page=100', // Adjust endpoint if needed
-            method: 'GET',
-            beforeSend: function(xhr) {
-                if (typeof wpApiSettings !== 'undefined' && wpApiSettings.nonce) {
-                    xhr.setRequestHeader('X-WP-Nonce', wpApiSettings.nonce);
+    // --- Define Editor Functions in the outer scope ---
+    function hivRoleEditor(container, options) {
+        $('<input name="' + options.field + '" />')
+            .appendTo(container)
+            .kendoMultiSelect({
+                dataTextField: "name",
+                dataValueField: "id",
+                dataSource: hivRolesData, // Still uses global data populated by AJAX
+                value: options.model.acf.hiv_role || [],
+                valuePrimitive: true,
+                autoClose: false,
+                 change: function(e) {
+                    options.model.set("acf.hiv_role", this.value());
+                 }
+            }).data("kendoMultiSelect");
+    }
+
+    function stiRoleEditor(container, options) {
+         $('<input name="' + options.field + '" />')
+            .appendTo(container)
+            .kendoMultiSelect({
+                dataTextField: "name",
+                dataValueField: "id",
+                dataSource: stiRolesData, // Still uses global data populated by AJAX
+                value: options.model.acf.sti_role || [],
+                valuePrimitive: true,
+                autoClose: false,
+                 change: function(e) {
+                    options.model.set("acf.sti_role", this.value());
+                 }
+            }).data("kendoMultiSelect");
+    }
+     // --- End Editor Function Definitions ---
+
+    // First, get the current user's jurisdiction ID
+    getCurrentUserJurisdictionId().then(jurisdictionId => {
+        console.log("Obtained Jurisdiction ID:", jurisdictionId);
+
+        // Now fetch all other data, using the jurisdictionId for contacts
+        Promise.all([
+            // Fetch HIV Roles
+            $.ajax({
+                url: stdBaseUrl + '/hiv-role?_fields=id,name&per_page=100', 
+                method: 'GET',
+                beforeSend: function(xhr) { if (typeof wpApiSettings !== 'undefined' && wpApiSettings.nonce) { xhr.setRequestHeader('X-WP-Nonce', wpApiSettings.nonce); } }
+            }).then(data => { hivRolesData = data; return data; }).catch(error => { hivRolesData = []; return []; }),
+
+            // Fetch STI Roles
+            $.ajax({
+                url: stdBaseUrl + '/sti-role?_fields=id,name&per_page=100', 
+                method: 'GET',
+                beforeSend: function(xhr) { if (typeof wpApiSettings !== 'undefined' && wpApiSettings.nonce) { xhr.setRequestHeader('X-WP-Nonce', wpApiSettings.nonce); } }
+            }).then(data => { stiRolesData = data; return data; }).catch(error => { stiRolesData = []; return []; }),
+
+            // Fetch OOJ Taxonomies
+            $.ajax({
+                url: stdBaseUrl + '/acf-ooj-infection?_fields=id,name&per_page=100',
+                method: 'GET',
+                beforeSend: function(xhr) { if (typeof wpApiSettings !== 'undefined' && wpApiSettings.nonce) { xhr.setRequestHeader('X-WP-Nonce', wpApiSettings.nonce); } }
+            }).then(data => { oojInfectionsData = data.map(term => ({ id: term.id, databaseId: term.id, name: term.name })); return data; })
+              .catch(error => { oojInfectionsData = []; return []; }),
+            $.ajax({
+                url: stdBaseUrl + '/acf-ooj-activity?_fields=id,name&per_page=100',
+                method: 'GET',
+                beforeSend: function(xhr) { if (typeof wpApiSettings !== 'undefined' && wpApiSettings.nonce) { xhr.setRequestHeader('X-WP-Nonce', wpApiSettings.nonce); } }
+            }).then(data => { oojActivitiesData = data.map(term => ({ id: term.id, databaseId: term.id, name: term.name })); return data; })
+              .catch(error => { oojActivitiesData = []; return []; }),
+            $.ajax({
+                url: stdBaseUrl + '/iccr_method-of-transmitting?_fields=id,name&per_page=100',
+                method: 'GET',
+                beforeSend: function(xhr) { if (typeof wpApiSettings !== 'undefined' && wpApiSettings.nonce) { xhr.setRequestHeader('X-WP-Nonce', wpApiSettings.nonce); } }
+            }).then(data => { methodsTransmittingData = data.map(term => ({ id: term.id, databaseId: term.id, name: term.name })); return data; })
+              .catch(error => { methodsTransmittingData = []; return []; }),
+            $.ajax({
+                url: stdBaseUrl + '/acceptable-for-pii?_fields=id,name&per_page=100',
+                method: 'GET',
+                beforeSend: function(xhr) { if (typeof wpApiSettings !== 'undefined' && wpApiSettings.nonce) { xhr.setRequestHeader('X-WP-Nonce', wpApiSettings.nonce); } }
+            }).then(data => { acceptablePiisData = data.map(term => ({ id: term.id, databaseId: term.id, name: term.name })); return data; })
+              .catch(error => { acceptablePiisData = []; return []; }),
+
+            // Fetch Contacts filtered by the obtained jurisdictionId
+            $.ajax({
+                // Filter by ACF field directly in the API call
+                url: stdBaseUrl + "/users?_fields=id,first_name,last_name,acf&context=edit&per_page=100&acf_user_jurisdiction=" + jurisdictionId,
+                dataType: "json",
+                beforeSend: function(xhr) {
+                     if (typeof wpApiSettings !== 'undefined' && wpApiSettings.nonce) {
+                        xhr.setRequestHeader('X-WP-Nonce', wpApiSettings.nonce);
+                    } else {
+                        console.error("Fetch Contacts: wpApiSettings.nonce is missing!");
+                    }
                 }
-            }
-        }).then(data => {
-            hivRolesData = data;
-            return data;
-        }).catch(error => {
-            hivRolesData = [];
-            return [];
-        }),
-        // Fetch STI Roles
-        $.ajax({
-            url: stdBaseUrl + '/sti-role?_fields=id,name&per_page=100', // Adjust endpoint if needed
-            method: 'GET',
-            beforeSend: function(xhr) {
-                if (typeof wpApiSettings !== 'undefined' && wpApiSettings.nonce) {
-                    xhr.setRequestHeader('X-WP-Nonce', wpApiSettings.nonce);
-                }
-            }
-        }).then(data => {
-            stiRolesData = data;
-            return data;
-        }).catch(error => {
-            stiRolesData = [];
-            return [];
-        }),
-        // Fetch OOJ Taxonomies and Contacts
-        $.ajax({
-            url: stdBaseUrl + '/acf-ooj-infection?_fields=id,name&per_page=100',
-            method: 'GET',
-            beforeSend: function(xhr) { if (typeof wpApiSettings !== 'undefined' && wpApiSettings.nonce) { xhr.setRequestHeader('X-WP-Nonce', wpApiSettings.nonce); } }
-        }).then(data => { oojInfectionsData = data.map(term => ({ id: term.id, databaseId: term.id, name: term.name })); return data; })
-          .catch(error => { oojInfectionsData = []; return []; }),
-        $.ajax({
-            url: stdBaseUrl + '/acf-ooj-activity?_fields=id,name&per_page=100',
-            method: 'GET',
-            beforeSend: function(xhr) { if (typeof wpApiSettings !== 'undefined' && wpApiSettings.nonce) { xhr.setRequestHeader('X-WP-Nonce', wpApiSettings.nonce); } }
-        }).then(data => { oojActivitiesData = data.map(term => ({ id: term.id, databaseId: term.id, name: term.name })); return data; })
-          .catch(error => { oojActivitiesData = []; return []; }),
-        $.ajax({
-            url: stdBaseUrl + '/iccr_method-of-transmitting?_fields=id,name&per_page=100',
-            method: 'GET',
-            beforeSend: function(xhr) { if (typeof wpApiSettings !== 'undefined' && wpApiSettings.nonce) { xhr.setRequestHeader('X-WP-Nonce', wpApiSettings.nonce); } }
-        }).then(data => { methodsTransmittingData = data.map(term => ({ id: term.id, databaseId: term.id, name: term.name })); return data; })
-          .catch(error => { methodsTransmittingData = []; return []; }),
-        $.ajax({
-            url: stdBaseUrl + '/acceptable-for-pii?_fields=id,name&per_page=100',
-            method: 'GET',
-            beforeSend: function(xhr) { if (typeof wpApiSettings !== 'undefined' && wpApiSettings.nonce) { xhr.setRequestHeader('X-WP-Nonce', wpApiSettings.nonce); } }
-        }).then(data => { acceptablePiisData = data.map(term => ({ id: term.id, databaseId: term.id, name: term.name })); return data; })
-          .catch(error => { acceptablePiisData = []; return []; }),
-        $.ajax({
-            url: stdBaseUrl + "/users?_fields=id,first_name,last_name&context=edit&per_page=100", // Fetch limited fields needed for POC dropdown
-            dataType: "json",
-            beforeSend: function(xhr) {
-                 if (typeof wpApiSettings !== 'undefined' && wpApiSettings.nonce) {
-                    xhr.setRequestHeader('X-WP-Nonce', wpApiSettings.nonce);
-                } else {
-                    console.error("Fetch Contacts: wpApiSettings.nonce is missing!");
-                }
-            }
-        }).then(data => {
-            contactsData = data.map(user => ({
-                id: user.id, // Use WordPress User ID as databaseId for consistency
-                databaseId: user.id,
-                firstName: user.first_name || "",
-                lastName: user.last_name || "",
-                name: `${user.first_name || ""} ${user.last_name || ""}`.trim()
-            }));
-            return data;
-        }).catch(error => {
-            contactsData = [];
-            return [];
-        })
-    ]).then(() => {
-        getCurrentUserJurisdictionId().then(jurisdictionId => {
+            }).then(data => {
+                console.log("Raw contacts data from API (filtered by jurisdiction " + jurisdictionId + "):", data); // Log raw data
+                // Map the data - jurisdiction ID parsing is less critical now but kept for consistency
+                contactsData = data.map(user => {
+                    const userJurisdictionId = user.acf?.user_jurisdiction ? parseInt(user.acf.user_jurisdiction, 10) : null;
+                    // Basic check if parsing failed or if the ID doesn't match the requested one (shouldn't happen with API filter)
+                    if (isNaN(userJurisdictionId)) {
+                        console.warn(`Could not parse user_jurisdiction '${user.acf?.user_jurisdiction}' for user ID ${user.id}`);
+                    } else if (userJurisdictionId !== jurisdictionId) {
+                         console.warn(`User ID ${user.id} has jurisdiction ${userJurisdictionId}, but we requested ${jurisdictionId}. API filter might not have worked as expected.`);
+                    }
+
+                    return {
+                        id: user.id,
+                        databaseId: user.id,
+                        firstName: user.first_name || "",
+                        lastName: user.last_name || "",
+                        name: `${user.first_name || ""} ${user.last_name || ""}`.trim() || `User ${user.id}`, // Fallback name
+                        jurisdiction: userJurisdictionId // Store the (hopefully correct) jurisdiction ID
+                    };
+                });
+                console.log("Processed contactsData (should be only for jurisdiction " + jurisdictionId + "):", contactsData); // Log processed data
+                return data;
+            }).catch(error => {
+                console.error("Error fetching contacts:", error);
+                contactsData = [];
+                return [];
+            })
+
+        ]).then(() => {
+            // Data fetched successfully, initialize grids
+            // No need to filter contactsData again here, as it was filtered by the API
+            // But the OOJ grid initialization expects jurisdictionContactsData derived from contactsData
             initializeJurisdictionGrid(jurisdictionId);
-            initializeUserGrid(jurisdictionId);
-            initializeOOJGrid(jurisdictionId);
+            initializeUserGrid(jurisdictionId); // Uses its own fetch
+            initializeOOJGrid(jurisdictionId);   // Will use the pre-filtered contactsData
         }).catch(error => {
-            console.error("Failed to get jurisdiction ID:", error);
+             console.error("Error fetching prerequisite data:", error);
+             // Handle error loading data (e.g., show message to user)
         });
+
+    }).catch(error => {
+        console.error("Failed to get jurisdiction ID initially:", error);
+        // Handle failure to get jurisdiction ID (critical error)
+        alert("Error: Could not determine your jurisdiction. Grids cannot be loaded.");
     }); 
    
 
@@ -290,13 +338,14 @@ $(document).ready(function () {
                             roles: ["subscriber"],
                             acf: {
                                user_jurisdiction: jurisdictionId,
-                               user_phone: options.acf.user_phone || "",
-                               user_fax: options.acf.user_fax || "",
+                               user_phone: options.acf.user_phone != null ? String(options.acf.user_phone) : "",
+                               user_fax: options.acf.user_fax != null ? String(options.acf.user_fax) : "",
                                notes_sti_hiv: options.acf.notes_sti_hiv || "",
                                hiv_role: options.acf.hiv_role || [],
                                sti_role: options.acf.sti_role || []
                             }
                         };
+                        console.log("Create Payload:", createPayload);
                         return JSON.stringify(createPayload);
                     }
                     return options;
@@ -326,17 +375,13 @@ $(document).ready(function () {
                                 notes_sti_hiv: { type: "string", editable: true },
                                 hiv_role: {
                                     editable: true,
-                                    defaultValue: [],
-                                    validation: {
-                                        required: { message: "HIV Role is Required" }
-                                    }
+                                    defaultValue: []
+                                    // Removed validation temporarily for debugging, can be added back
                                 },
                                 sti_role: {
                                     editable: true,
-                                    defaultValue: [],
-                                    validation: {
-                                        required: { message: "STI Role is Required" }
-                                    }
+                                    defaultValue: []
+                                     // Removed validation temporarily for debugging, can be added back
                                 }
                             } 
                         }
@@ -437,7 +482,7 @@ $(document).ready(function () {
                     title: "HIV Roles", 
                     width: "180px",
                     template: function(dataItem) {
-                        if (!dataItem.acf || !dataItem.acf.hiv_role || dataItem.acf.hiv_role.length === 0) return "—";
+                        if (!dataItem.acf || !dataItem.acf.hiv_role || dataItem.acf.hiv_role.length === 0) return ''; // Return empty string
                         return dataItem.acf.hiv_role.map(roleId => {
                             if (!Array.isArray(hivRolesData)) return `ID: ${roleId}`; 
                             const role = hivRolesData.find(r => r.id === roleId);
@@ -451,7 +496,7 @@ $(document).ready(function () {
                     title: "STI Roles", 
                     width: "180px",
                     template: function(dataItem) {
-                        if (!dataItem.acf || !dataItem.acf.sti_role || dataItem.acf.sti_role.length === 0) return "—";
+                        if (!dataItem.acf || !dataItem.acf.sti_role || dataItem.acf.sti_role.length === 0) return ''; // Return empty string
                          return dataItem.acf.sti_role.map(roleId => {
                             if (!Array.isArray(stiRolesData)) return `ID: ${roleId}`;
                             const role = stiRolesData.find(r => r.id === roleId);
@@ -468,38 +513,516 @@ $(document).ready(function () {
 
     }
 
-    function hivRoleEditor(container, options) {
-        $('<input name="acf.hiv_role" />')
-            .appendTo(container)
-            .kendoMultiSelect({
-                dataTextField: "name",
-                dataValueField: "id",
-                dataSource: hivRolesData, 
-                value: options.model.acf.hiv_role || [], 
-                valuePrimitive: true, 
-                autoClose: false,
-                change: function(e) {
-                   options.model.set(options.field, this.value());
-                }
-            });
-    }
+    function initializeOOJGrid(jurisdictionId) {
+        var stdBaseUrl = "https://hivstiooj.cste.org/wp-json/wp/v2";
 
-    function stiRoleEditor(container, options) {
-        $('<input name="acf.sti_role" />')
-            .appendTo(container)
-            .kendoMultiSelect({
-                dataTextField: "name",
-                dataValueField: "id",
-                dataSource: stiRolesData, 
-                value: options.model.acf.sti_role || [],
-                valuePrimitive: true, 
-                autoClose: false,
-                change: function(e) {
-                   options.model.set(options.field, this.value());
-                }
-            });
-    }
+        // Helper to safely extract IDs for saving
+        function extractTermIds(data) {
+            if (!data) return []; // Handle null or undefined
+            if (!Array.isArray(data)) { // Handle single object case
+                 return data.id ? [data.id] : [];
+            }
+            // Handle array case
+            return data.map(item => item && typeof item === 'object' ? item.id : item).filter(id => id !== null && id !== undefined);
+        }
 
+        // Helper to extract a single ID (for single select ACF fields)
+        function extractSingleTermId(data) {
+            if (!data) return null;
+            if (Array.isArray(data) && data.length > 0 && data[0]) {
+                return data[0].id || null;
+            }
+            if (!Array.isArray(data) && data.id) {
+                return data.id;
+            }
+            return null;
+        }
+
+        // --- Filter contacts for the current jurisdiction ---
+        // This filtering step is now *technically* redundant if the API call worked,
+        // but it acts as a safeguard and ensures the data structure is consistent
+        // with the previous implementation.
+        const jurisdictionContactsData = contactsData.filter(contact => {
+            // Ensure strict comparison with the current grid's jurisdictionId
+            // Note: contact.jurisdiction might be null if parsing failed earlier,
+            // but should ideally match jurisdictionId due to the API filter.
+            return contact && contact.jurisdiction === jurisdictionId;
+        });
+        console.log(`Filtered contacts for Jurisdiction ${jurisdictionId} (from pre-filtered global list):`, jurisdictionContactsData);
+        if (jurisdictionContactsData.length === 0) {
+            // This warning might appear if the initial API filter returned nothing,
+            // or if there was an issue mapping the jurisdiction ID in the contactsData processing step.
+            console.warn(`No contacts found matching jurisdiction ID ${jurisdictionId} after local filtering. POC dropdown might be empty or API filter might need review.`);
+        }
+        // --- End filtering ---
+
+        var oojDataSource = new kendo.data.DataSource({
+            transport: {
+                read: {
+                    url: function() {
+                        const readUrl = stdBaseUrl + "/ooj-detail?jurisdiction=" + jurisdictionId + "&_embed&per_page=100";
+                        console.log("Using OOJ Read URL:", readUrl);
+                        return readUrl;
+                    },
+                    dataType: "json",
+                    success: function(rawResponse) {
+                        console.log("Raw OOJ API Response (before parse):", rawResponse);
+                    },
+                    beforeSend: function(xhr) {
+                        if (typeof wpApiSettings !== 'undefined' && wpApiSettings.nonce) {
+                            xhr.setRequestHeader('X-WP-Nonce', wpApiSettings.nonce);
+                        } else { console.error('OOJ Read: wpApiSettings.nonce is missing!'); }
+                    }
+                },
+                create: {
+                    url: stdBaseUrl + "/ooj-detail",
+                    method: "POST",
+                    dataType: "json",
+                    contentType: "application/json; charset=utf-8",
+                    beforeSend: function(xhr) {
+                        if (typeof wpApiSettings !== 'undefined' && wpApiSettings.nonce) {
+                            xhr.setRequestHeader('X-WP-Nonce', wpApiSettings.nonce);
+                        } else { console.error('OOJ Create: wpApiSettings.nonce is missing!'); }
+                    }
+                },
+                update: {
+                    url: function(options) { return stdBaseUrl + "/ooj-detail/" + options.id; },
+                    method: "POST",
+                    dataType: "json",
+                    contentType: "application/json; charset=utf-8",
+                    beforeSend: function(xhr) {
+                        if (typeof wpApiSettings !== 'undefined' && wpApiSettings.nonce) {
+                            xhr.setRequestHeader('X-WP-Nonce', wpApiSettings.nonce);
+                        } else { console.error('OOJ Update: wpApiSettings.nonce is missing!'); }
+                    }
+                },
+                destroy: {
+                    url: function(options) { return stdBaseUrl + "/ooj-detail/" + options.id + "?force=true"; },
+                    method: "DELETE",
+                    beforeSend: function(xhr) {
+                        if (typeof wpApiSettings !== 'undefined' && wpApiSettings.nonce) {
+                            xhr.setRequestHeader('X-WP-Nonce', wpApiSettings.nonce);
+                        } else { console.error('OOJ Destroy: wpApiSettings.nonce is missing!'); }
+                    }
+                },
+                parameterMap: function(options, operation) {
+                    if (operation === "create" || operation === "update") {
+                        console.log(`OOJ parameterMap (${operation}), input options:`, options);
+
+                        // Extract IDs for ACF fields
+                        const infectionId = extractSingleTermId(options.oojInfections);
+                        const activityId = extractSingleTermId(options.oojActivities);
+                        const piiIds = extractTermIds(options.acceptableForPiis); // Multi-select still needs array
+                        const pointOfContactId = extractSingleTermId(options.pointOfContacts); // ACF expects single ID
+
+                        const payload = {
+                            title: options.title || "OOJ Detail",
+                            status: "publish",
+                            acf: {
+                                jurisdiction_selection: jurisdictionId,
+                                // Map Kendo model fields back to ACF field names
+                                infection: infectionId,
+                                activity: activityId,
+                                acceptable_for_pii: piiIds, // Send array of IDs
+                                point_of_contact: pointOfContactId, // Send single ID or null
+                                // Other ACF fields
+                                last_date_of_exposure: options.lastDateOfExposure || "",
+                                dispositions_returned: options.dispositionsReturned || "",
+                                accept_and_investigate: options.acceptAndInvestigate || "",
+                                notes: options.notes || "",
+                                ooj_phone: options.oojPhone != null ? String(options.oojPhone) : "",
+                                ooj_fax: options.oojFax != null ? String(options.oojFax) : "",
+                                ooj_email: options.oojEmail || ""
+                            },
+                            // Keep sending top-level taxonomies just in case? Or remove if ACF handles it fully.
+                            // Let's assume ACF handles it fully based on the field definitions for now.
+                            // "acf-ooj-infection": infectionId ? [infectionId] : [], // Example if needed
+                            // "acf-ooj-activity": activityId ? [activityId] : [], // Example if needed
+                            // "acceptable-for-pii": piiIds, // Example if needed
+                            "iccr_method-of-transmitting": extractTermIds(options.methodsOfTransmitting) // Assume this is still standard WP taxonomy
+                        };
+                        console.log(`OOJ Payload (${operation}):`, payload);
+                        return JSON.stringify(payload);
+                    }
+                    return options;
+                }
+            },
+            schema: {
+                model: {
+                    id: "id",
+                    fields: {
+                        id: { editable: false, nullable: true },
+                        title: { type: "string", defaultValue: "OOJ Detail" },
+                        // Kendo Model fields - structure remains array of objects for consistency in templates/editors
+                        oojInfections: { defaultValue: [] }, // Will hold [{id, name}] even if single select
+                        oojActivities: { defaultValue: [] }, // Will hold [{id, name}] even if single select
+                        acceptableForPiis: { defaultValue: [] }, // Holds array for multi-select
+                        methodsOfTransmitting: { defaultValue: [] }, // Assume this is still standard multi-select WP taxonomy
+                        // Point of Contact - treat as single select for ACF, model holds array for consistency
+                        pointOfContacts: {
+                            defaultValue: [],
+                            validation: { required: true, message: "Point of Contact is required" }
+                        },
+                        // Other fields
+                        lastDateOfExposure: { type: "string" },
+                        dispositionsReturned: { type: "string" },
+                        acceptAndInvestigate: { type: "string" },
+                        notes: { type: "string" },
+                        oojPhone: { type: "string" },
+                        oojFax: { type: "string" },
+                        oojEmail: { type: "string", validation: { email: true } }
+                    }
+                },
+                parse: function(response) {
+                    console.log("Starting OOJ Parse..."); // Log start
+                    let dataToProcess = [];
+                    if (Array.isArray(response)) { dataToProcess = response; }
+                    else if (response && typeof response === 'object' && response.id) { dataToProcess = [response]; }
+                    else { console.warn("OOJ parse: Response format unexpected", response); return []; }
+
+                    try {
+                        const mappedData = dataToProcess.map((item, index) => { // Add index for logging
+                            console.log(`\n--- Processing Item Index: ${index}, ID: ${item.id} ---`);
+                            if (!item || typeof item !== 'object') { console.warn('Invalid item in data', item); return null; }
+
+                            const acf = item.acf || {};
+                            const embeddedAcfTerms = (item._embedded && item._embedded['acf:term']) || [];
+                            const embeddedWpTerms = (item._embedded && item._embedded['wp:term']) || [];
+
+                            // Log the raw ACF data and embedded terms for this item
+                            console.log(`  Item ${item.id} - Raw ACF:`, JSON.stringify(acf));
+                            console.log(`  Item ${item.id} - Embedded ACF Terms:`, embeddedAcfTerms);
+                            // console.log(`  Item ${item.id} - Embedded WP Terms:`, embeddedWpTerms);
+
+
+                            const mapped = {
+                                id: item.id,
+                                title: item.title?.rendered || "OOJ Detail",
+                                lastDateOfExposure: acf.last_date_of_exposure || "",
+                                dispositionsReturned: acf.dispositions_returned || "",
+                                acceptAndInvestigate: acf.accept_and_investigate || "",
+                                notes: acf.notes || "",
+                                pointOfContacts: [],
+                                oojInfections: [],
+                                oojActivities: [],
+                                acceptableForPiis: [],
+                                methodsOfTransmitting: [],
+                                oojPhone: acf.ooj_phone || "",
+                                oojFax: acf.ooj_fax || "",
+                                oojEmail: acf.ooj_email || ""
+                            };
+
+                            // --- POC Mapping ---
+                            const contactId = acf.point_of_contact;
+                            if (contactId !== null && contactId !== undefined) {
+                                 const safeContactsData = Array.isArray(jurisdictionContactsData) ? jurisdictionContactsData : [];
+                                 const user = safeContactsData.find(c => c && String(c.id) === String(contactId));
+                                 if (user) {
+                                     mapped.pointOfContacts = [{ id: user.id, name: user.name || `User ${user.id}` }]; // Simplified object
+                                     console.log(`  Item ${item.id} - POC Found:`, mapped.pointOfContacts[0]);
+                                 } else {
+                                     mapped.pointOfContacts = [{ id: contactId, name: `Unknown (${contactId})` }];
+                                     console.warn(`  Item ${item.id}: Point of Contact ID ${contactId} in ACF but not in contactsData.`);
+                                 }
+                            } else {
+                                 console.log(`  Item ${item.id} - POC ID is null/undefined.`);
+                            }
+
+                            // --- ACF Taxonomy Mapping ---
+                            const findEmbeddedAcfTerm = (id) => {
+                                if (!id || !Array.isArray(embeddedAcfTerms)) return null;
+                                const found = embeddedAcfTerms.find(t => t && String(t.id) === String(id));
+                                // console.log(`    findEmbeddedAcfTerm(${id}): Found ->`, found); // Detailed log
+                                return found;
+                            };
+
+                            // Infection
+                            const infectionId = acf.infection;
+                            console.log(`  Item ${item.id} - acf.infection ID: ${infectionId}`);
+                            if (infectionId) {
+                                const embeddedTerm = findEmbeddedAcfTerm(infectionId);
+                                if (embeddedTerm && embeddedTerm.name) { // Check if name exists
+                                    mapped.oojInfections = [{ id: embeddedTerm.id, name: embeddedTerm.name }];
+                                    console.log(`  Item ${item.id} - Mapped Infection:`, mapped.oojInfections[0]);
+                                } else {
+                                     console.warn(`  Item ${item.id}: Infection term for ID ${infectionId} not found in _embedded['acf:term'] or missing name.`);
+                                     mapped.oojInfections = [{ id: infectionId, name: `Unknown (${infectionId})` }];
+                                }
+                            }
+
+                            // Activity
+                            const activityId = acf.activity;
+                            console.log(`  Item ${item.id} - acf.activity ID: ${activityId}`);
+                            if (activityId) {
+                                const embeddedTerm = findEmbeddedAcfTerm(activityId);
+                                if (embeddedTerm && embeddedTerm.name) {
+                                    mapped.oojActivities = [{ id: embeddedTerm.id, name: embeddedTerm.name }];
+                                    console.log(`  Item ${item.id} - Mapped Activity:`, mapped.oojActivities[0]);
+                                } else {
+                                     console.warn(`  Item ${item.id}: Activity term for ID ${activityId} not found in _embedded['acf:term'] or missing name.`);
+                                     mapped.oojActivities = [{ id: activityId, name: `Unknown (${activityId})` }];
+                                }
+                            }
+
+                             // Acceptable PII
+                            const piiIds = acf.acceptable_for_pii;
+                            console.log(`  Item ${item.id} - acf.acceptable_for_pii IDs:`, piiIds);
+                            if (Array.isArray(piiIds) && piiIds.length > 0) {
+                                 mapped.acceptableForPiis = piiIds.map(id => {
+                                     const embeddedTerm = findEmbeddedAcfTerm(id);
+                                     if (embeddedTerm && embeddedTerm.name) {
+                                         return { id: embeddedTerm.id, name: embeddedTerm.name };
+                                     } else {
+                                         console.warn(`  Item ${item.id}: PII term for ID ${id} not found in _embedded['acf:term'] or missing name.`);
+                                         return { id: id, name: `Unknown (${id})` };
+                                     }
+                                 }).filter(t => t !== null);
+                                 console.log(`  Item ${item.id} - Mapped Acceptable PII:`, mapped.acceptableForPiis);
+                            }
+
+                            // --- Standard WP Taxonomy (Methods) ---
+                            const methodsTermKey = 'iccr_method-of-transmitting';
+                            const methodsTermIds = item[methodsTermKey];
+                            console.log(`  Item ${item.id} - item['${methodsTermKey}'] IDs:`, methodsTermIds);
+                            const methodsTaxonomyGroup = embeddedWpTerms.find(group => Array.isArray(group) && group.length > 0 && group[0].taxonomy === methodsTermKey);
+
+                            if (methodsTermIds && Array.isArray(methodsTermIds) && methodsTermIds.length > 0) {
+                                if (methodsTaxonomyGroup) {
+                                     mapped.methodsOfTransmitting = methodsTermIds.map(termId => {
+                                         const foundEmbeddedTerm = methodsTaxonomyGroup.find(t => t && String(t.id) === String(termId));
+                                         if (foundEmbeddedTerm && foundEmbeddedTerm.name) {
+                                             return { id: foundEmbeddedTerm.id, name: foundEmbeddedTerm.name };
+                                         } else {
+                                             console.warn(`  Item ${item.id}, Taxonomy ${methodsTermKey}: Term for ID ${termId} not found in its embedded group or missing name.`);
+                                             return { id: termId, name: `Unknown (${termId})` };
+                                         }
+                                     }).filter(t => t !== null);
+                                     console.log(`  Item ${item.id} - Mapped Methods:`, mapped.methodsOfTransmitting);
+                                } else {
+                                     console.warn(`  Item ${item.id}: Embedded group for '${methodsTermKey}' not found in _embedded['wp:term'].`);
+                                     mapped.methodsOfTransmitting = methodsTermIds.map(id => ({ id: id, name: `Unknown (${id})`}));
+                                }
+                            }
+                            // --- End Mappings ---
+
+                            console.log(`  Item ${item.id} - Final Mapped Object:`, mapped); // Log final object structure before return
+                            return mapped;
+                        }).filter(item => item !== null);
+
+                        console.log("Parse Complete. Final Mapped Data for DataSource:", mappedData);
+                        return mappedData;
+
+                    } catch (error) {
+                        console.error("Error during map operation in OOJ parse:", error);
+                        return [];
+                    }
+                }, // End parse function
+                error: function(e) {
+                    console.error("DataSource error in OOJ Grid:", e);
+                    let message = "An error occurred processing the OOJ data.";
+                    if (e.xhr && e.xhr.responseJSON && e.xhr.responseJSON.message) {
+                        message = e.xhr.responseJSON.message;
+                    } else if (e.errors) {
+                        message = Array.isArray(e.errors) ? e.errors.join(", ") : String(e.errors);
+                    }
+                    alert("Error: " + message);
+
+                    var grid = $("#OojGrid").data("kendoGrid");
+                     if (grid) {
+                         grid.cancelChanges();
+                     }
+                }
+            }
+        });
+
+        function createPointOfContactsTemplate() {
+            return function(dataItem) {
+                // console.log(`Template pointOfContacts dataItem:`, dataItem);
+
+                let potentialContactData = dataItem.pointOfContacts;
+                let contact = null;
+
+                if (Array.isArray(potentialContactData) && potentialContactData.length > 0) {
+                     contact = potentialContactData[0];
+                }
+                else if (potentialContactData && typeof potentialContactData === 'object' && !Array.isArray(potentialContactData)) {
+                    contact = potentialContactData;
+                }
+
+                // console.log(`Template pointOfContacts contact:`, contact);
+
+                return contact ? contact.name : ''; // Return empty string instead of '—'
+            };
+        }
+
+        function createPointOfContactsEditor(container, options) {
+            $('<input required name="' + options.field + '" data-required-msg="Point of Contact is required"/>') 
+                .appendTo(container)
+                .kendoDropDownList({
+                    dataTextField: "name",
+                    dataValueField: "id",
+                    dataSource: jurisdictionContactsData,
+                    optionLabel: "Select Contact...",
+                    value: options.model.pointOfContacts && options.model.pointOfContacts.length > 0 ? options.model.pointOfContacts[0].id : null,
+                    change: function(e) {
+                        const selectedId = this.value();
+                        const selectedUser = jurisdictionContactsData.find(c => c.id == selectedId);
+                        options.model.set(options.field, selectedUser ? [selectedUser] : []);
+                    }
+                });
+        }
+
+        $("#OojGrid").kendoGrid({
+            dataSource: oojDataSource,
+            pageable: false,
+            scrollable: false,
+            toolbar: ["create", "save", "cancel"],
+            columns: [
+                 {
+                    field: "oojInfections", // Matches Kendo model field
+                    title: "Infection",
+                    width: 180,
+                    template: createTaxonomyTemplate("oojInfections"), // Uses the model field
+                    editor: function(container, options) {
+                        // Use SingleSelectEditor because ACF field is single select
+                        createSingleSelectEditor(container, options, {
+                            fieldName: "oojInfections", // Matches Kendo model field
+                            dataSource: oojInfectionsData, // Global list for options
+                            placeholder: "Select Infection..."
+                        });
+                    }
+                },
+                {
+                    field: "oojActivities", // Matches Kendo model field
+                    title: "Activity",
+                    width: 180,
+                    template: createTaxonomyTemplate("oojActivities"), // Uses the model field
+                    editor: function(container, options) {
+                         // Use SingleSelectEditor because ACF field is single select
+                        createSingleSelectEditor(container, options, {
+                            fieldName: "oojActivities", // Matches Kendo model field
+                            dataSource: oojActivitiesData, // Global list for options
+                            placeholder: "Select Activity..."
+                        });
+                    }
+                },
+                { 
+                    field: "lastDateOfExposure", 
+                    title: "Last Date of Exposure",
+                    headerTemplate: "Last Date of Exposure <span class='header-tooltip-icon'>&#9432;</span>",
+                    width: 150,
+                     headerAttributes: { "data-tooltip-content": "Timeframe within which a partner/contact's exposure to an infection is eligible for investigation (e.g. syphilis exposure that occurred within the past 90 days). Complete this when the Activity is Partner Services: Partner/Contact." }
+                },
+                { 
+                    field: "dispositionsReturned", 
+                    title: "Dispo/Info Returned",
+                    headerTemplate: "Dispo/Info Returned <span class='header-tooltip-icon'>&#9432;</span>",
+                    width: 160,
+                    headerAttributes: { "data-tooltip-content": "Indicate if/when you will return a disposition or information for requested activities." }
+                },
+                {
+                    field: "methodsOfTransmitting", // Keep using standard WP taxonomy for this one
+                    title: "Method(s) of Transmitting",
+                    width: 180,
+                    template: createTaxonomyTemplate("methodsOfTransmitting"),
+                    editor: function(container, options) {
+                        createMultiSelectEditor(container, options, {
+                            fieldName: "methodsOfTransmitting",
+                            dataSource: methodsTransmittingData,
+                            placeholder: "Select Methods..."
+                        });
+                    }
+                },
+                {
+                    field: "acceptableForPiis", // Matches Kendo model field
+                    title: "Acceptable for PII",
+                    width: 180,
+                    template: createTaxonomyTemplate("acceptableForPiis"), // Uses the model field
+                    editor: function(container, options) {
+                        // Use MultiSelectEditor because ACF field is multi-select
+                        createMultiSelectEditor(container, options, {
+                            fieldName: "acceptableForPiis", // Matches Kendo model field
+                            dataSource: acceptablePiisData, // Global list for options
+                            placeholder: "Select PII..."
+                        });
+                    }
+                },
+                {
+                    field: "oojPhone",
+                    title: "Phone",
+                    //headerTemplate: "Phone <span class='header-tooltip-icon'>&#9432;</span>",
+                    headerAttributes: { "data-tooltip-content": "Phone number associated with the OOJ case details." }, 
+                    width: 130,
+                    template: function(dataItem) {
+                        const rawValue = dataItem.oojPhone;
+                        if (typeof rawValue === 'string' || typeof rawValue === 'number') {
+                            const digits = String(rawValue).replace(/\D/g, ''); 
+                            if (digits.length === 10) {
+                                return `(${digits.substring(0, 3)}) ${digits.substring(3, 6)}-${digits.substring(6, 10)}`;
+                            }
+                            return digits;
+                        }
+                        return "—"; 
+                    }
+                },
+                {
+                    field: "oojFax",
+                    title: "Fax",
+                    //headerTemplate: "Fax <span class='header-tooltip-icon'>&#9432;</span>",
+                    headerAttributes: { "data-tooltip-content": "Fax number associated with the OOJ case details." }, 
+                    width: 130,
+                    template: function(dataItem) {
+                        const rawValue = dataItem.oojFax;
+                        if (typeof rawValue === 'string' || typeof rawValue === 'number') {
+                            const digits = String(rawValue).replace(/\D/g, ''); 
+                            if (digits.length === 10) {
+                                return `(${digits.substring(0, 3)}) ${digits.substring(3, 6)}-${digits.substring(6, 10)}`;
+                            }
+                            return digits;
+                        }
+                        return "—";
+                    }
+                },
+                { 
+                    field: "oojEmail", 
+                    title: "Email",
+                    //headerTemplate: "Email <span class='header-tooltip-icon'>&#9432;</span>", 
+                    headerAttributes: { "data-tooltip-content": "Email address associated with the OOJ case details." }, 
+                    width: 180
+                },
+                {
+                    field: "pointOfContacts",
+                    title: "Point of Contact",
+                    width: 180,
+                    template: createPointOfContactsTemplate(),
+                    editor: createPointOfContactsEditor
+                },
+                {
+                    field: "notes",
+                    title: "Notes",
+                    width: 200,
+                    headerAttributes: { "data-tooltip-content": "Enter any relevant notes for this OOJ case." }
+                },
+                { command: ["edit", "destroy"], title: "&nbsp;", width: "180px" }
+            ],
+            editable: "inline",
+             save: function(e) {
+                console.log("OOJ Grid save event. Model validation should occur.", e.model);
+            }
+        });
+
+        $("#OojGrid .k-grid-header").kendoTooltip({
+            filter: ".header-tooltip-icon",
+            position: "bottom",
+            content: function(e) {
+                var th = $(e.target).closest('th'); 
+                var tooltipContent = th.data("tooltip-content");
+                return tooltipContent || "No description";
+            },
+            width: 200,
+            showAfter: 750 
+        });
+    }
 });
 
 function getCurrentUserJurisdictionId() {
@@ -556,11 +1079,17 @@ function generateSecurePassword(length = 12) {
 
 function createTaxonomyTemplate(fieldName) {
     return function(dataItem) {
-        const items = dataItem[fieldName];
+        // console.log(`Template ${fieldName} dataItem:`, dataItem); // Keep for debugging if needed
+        const items = dataItem[fieldName]; // Should be an array of objects from parse
+
         if (Array.isArray(items) && items.length > 0) {
-            return items.map(item => (item && typeof item === 'object' && item.name) ? item.name : 'Invalid Item').join(', ');
+            // Filter out any potentially invalid items just in case
+            return items
+                .map(item => (item && typeof item === 'object' && item.name) ? item.name : null)
+                .filter(name => name !== null)
+                .join(', ');
         }
-        return '—';
+        return ''; // Return empty string instead of '—'
     };
 }
 
@@ -597,397 +1126,5 @@ function createMultiSelectEditor(container, options, config) {
                 options.model.set(config.fieldName, selectedItems);
             }
         });
-}
-
-function initializeOOJGrid(jurisdictionId) {
-    var stdBaseUrl = "https://hivstiooj.cste.org/wp-json/wp/v2";
-
-    function extractIds(items) {
-        if (!Array.isArray(items) || items.length === 0) return [];
-        return items.map(item => item && typeof item === 'object' ? item.id : item).filter(id => id !== null && id !== undefined);
-    }
-
-    var oojDataSource = new kendo.data.DataSource({
-        transport: {
-            read: {
-                url: stdBaseUrl + "/ooj-detail?jurisdiction=" + jurisdictionId + "&_embed&per_page=100",
-                dataType: "json",
-                beforeSend: function(xhr) {
-                    if (typeof wpApiSettings !== 'undefined' && wpApiSettings.nonce) {
-                        xhr.setRequestHeader('X-WP-Nonce', wpApiSettings.nonce);
-                    } else { console.error('OOJ Read: wpApiSettings.nonce is missing!'); }
-                }
-            },
-            create: {
-                url: stdBaseUrl + "/ooj-detail",
-                method: "POST",
-                dataType: "json",
-                contentType: "application/json; charset=utf-8",
-                beforeSend: function(xhr) {
-                    if (typeof wpApiSettings !== 'undefined' && wpApiSettings.nonce) {
-                        xhr.setRequestHeader('X-WP-Nonce', wpApiSettings.nonce);
-                    } else { console.error('OOJ Create: wpApiSettings.nonce is missing!'); }
-                }
-            },
-            update: {
-                url: function(options) { return stdBaseUrl + "/ooj-detail/" + options.id; },
-                method: "POST",
-                dataType: "json",
-                contentType: "application/json; charset=utf-8",
-                beforeSend: function(xhr) {
-                    if (typeof wpApiSettings !== 'undefined' && wpApiSettings.nonce) {
-                        xhr.setRequestHeader('X-WP-Nonce', wpApiSettings.nonce);
-                    } else { console.error('OOJ Update: wpApiSettings.nonce is missing!'); }
-                }
-            },
-            destroy: {
-                url: function(options) { return stdBaseUrl + "/ooj-detail/" + options.id + "?force=true"; },
-                method: "DELETE",
-                beforeSend: function(xhr) {
-                    if (typeof wpApiSettings !== 'undefined' && wpApiSettings.nonce) {
-                        xhr.setRequestHeader('X-WP-Nonce', wpApiSettings.nonce);
-                    } else { console.error('OOJ Destroy: wpApiSettings.nonce is missing!'); }
-                }
-            },
-            parameterMap: function(options, operation) {
-                if (operation === "create" || operation === "update") {
-                    console.log(`OOJ parameterMap (${operation}):`, options);
-                    const payload = {
-                        title: options.title || "OOJ Detail",
-                        status: "publish",
-                        acf: {
-                            jurisdiction_selection: jurisdictionId,
-                            last_date_of_exposure: options.lastDateOfExposure || "",
-                            dispositions_returned: options.dispositionsReturned || "",
-                            accept_and_investigate: options.acceptAndInvestigate || "",
-                            notes: options.notes || "",
-                            point_of_contacts: extractIds(options.pointOfContacts),
-                            ooj_phone: options.oojPhone != null ? String(options.oojPhone) : "",
-                            ooj_fax: options.oojFax != null ? String(options.oojFax) : "",
-                            ooj_email: options.oojEmail || ""
-                        },
-                        "acf-ooj-infection": extractIds(options.oojInfections),
-                        "acf-ooj-activity": extractIds(options.oojActivities),
-                        "iccr_method-of-transmitting": extractIds(options.methodsOfTransmitting),
-                        "acceptable-for-pii": extractIds(options.acceptableForPiis)
-                    };
-                    console.log(`OOJ Payload (${operation}):`, payload);
-                    return JSON.stringify(payload);
-                }
-                return options;
-            }
-        },
-        schema: {
-            model: {
-                id: "id",
-                fields: {
-                    id: { editable: false, nullable: true },
-                    title: { type: "string", defaultValue: "OOJ Detail" },
-                    oojInfections: { defaultValue: [] },
-                    oojActivities: { defaultValue: [] },
-                    lastDateOfExposure: { type: "string" },
-                    dispositionsReturned: { type: "string" },
-                    acceptAndInvestigate: { type: "string" },
-                    methodsOfTransmitting: { defaultValue: [] },
-                    acceptableForPiis: { defaultValue: [] },
-                    pointOfContacts: {
-                        defaultValue: [],
-                        validation: { required: true, message: "Point of Contact is required" }
-                    },
-                    notes: { type: "string" },
-                    oojPhone: { type: "string" },
-                    oojFax: { type: "string" },
-                    oojEmail: { type: "string", validation: { email: true } }
-                }
-            },
-            parse: function(response) {
-                console.log("Parsing OOJ response:", response);
-                let dataToProcess = [];
-
-                if (Array.isArray(response)) {
-                    dataToProcess = response;
-                } else if (response && typeof response === 'object' && response.id) {
-                    dataToProcess = [response];
-                } else {
-                    console.warn("OOJ parse: Response is not an array or valid object", response);
-                    return [];
-                }
-
-                try {
-                    return dataToProcess.map(item => {
-                        if (!item || typeof item !== 'object') {
-                            console.warn('Invalid item found in dataToProcess array:', item);
-                            return null;
-                        }
-
-                        const acf = item.acf || {};
-                        const mapped = {
-                            id: item.id,
-                            title: item.title?.rendered || "OOJ Detail",
-                            lastDateOfExposure: acf.last_date_of_exposure || "",
-                            dispositionsReturned: acf.dispositions_returned || "",
-                            acceptAndInvestigate: acf.accept_and_investigate || "",
-                            notes: acf.notes || "",
-                            pointOfContacts: [],
-                            oojInfections: [],
-                            oojActivities: [],
-                            methodsOfTransmitting: [],
-                            acceptableForPiis: [],
-                            oojPhone: acf.ooj_phone || "",
-                            oojFax: acf.ooj_fax || "",
-                            oojEmail: acf.ooj_email || ""
-                        };
-
-                        const contactIds = acf.point_of_contacts;
-                        if (Array.isArray(contactIds)) {
-                            const safeContactsData = Array.isArray(contactsData) ? contactsData : [];
-                            mapped.pointOfContacts = contactIds.map(userId => {
-                                const user = safeContactsData.find(c => c && c.id == userId);
-                                return user ? { id: user.id, databaseId: user.id, name: user.name, firstName: user.firstName, lastName: user.lastName } : { id: userId, databaseId: userId, name: `Unknown (${userId})` };
-                            }).filter(u => u && u.id);
-                        }
-
-                        const termMappings = {
-                            'acf-ooj-infection':         { targetArray: 'oojInfections',         sourceData: oojInfectionsData },
-                            'acf-ooj-activity':          { targetArray: 'oojActivities',         sourceData: oojActivitiesData },
-                            'iccr_method-of-transmitting': { targetArray: 'methodsOfTransmitting', sourceData: methodsTransmittingData },
-                            'acceptable-for-pii':        { targetArray: 'acceptableForPiis',     sourceData: acceptablePiisData }
-                        };
-
-                        for (const termKey in termMappings) {
-                            const mappingInfo = termMappings[termKey];
-                            const targetArrayName = mappingInfo.targetArray;
-                            const sourceList = Array.isArray(mappingInfo.sourceData) ? mappingInfo.sourceData : [];
-
-                            if (item[termKey] && Array.isArray(item[termKey])) {
-                                console.log(`Processing ${targetArrayName} from item['${termKey}']:`, item[termKey]);
-
-                                const processedTerms = item[termKey].map(termId => {
-                                    if (termId === null || termId === undefined) return null;
-
-                                    const foundTerm = sourceList.find(t => t && Number(t.databaseId) === Number(termId));
-
-                                    if (foundTerm) {
-                                        return { id: foundTerm.id, databaseId: foundTerm.databaseId, name: foundTerm.name };
-                                    } else {
-                                        console.warn("Term ID not found in global list:", termId, "for taxonomy:", termKey);
-                                        return { id: termId, databaseId: termId, name: `Unknown Term (${termId})`};
-                                    }
-                                }).filter(term => term !== null);
-
-                                mapped[targetArrayName] = processedTerms;
-                            } else {
-                                mapped[targetArrayName] = [];
-                            }
-                        }
-
-                        console.log("Final mapped object for item", item.id, ":", mapped);
-                        return mapped;
-                    }).filter(item => item !== null);
-                } catch (error) {
-                    console.error("Error during map operation in OOJ parse:", error, "Data being processed:", dataToProcess);
-                    return [];
-                }
-            },
-            error: function(e) {
-                console.error("DataSource error in OOJ Grid:", e);
-                let message = "An error occurred processing the OOJ data.";
-                if (e.xhr && e.xhr.responseJSON && e.xhr.responseJSON.message) {
-                    message = e.xhr.responseJSON.message;
-                } else if (e.errors) {
-                    message = Array.isArray(e.errors) ? e.errors.join(", ") : String(e.errors);
-                }
-                alert("Error: " + message);
-
-                var grid = $("#OojGrid").data("kendoGrid");
-                 if (grid) {
-                     grid.cancelChanges();
-                 }
-            }
-        }
-    });
-
-    function createPointOfContactsTemplate() {
-        return function(dataItem) {
-            const contact = dataItem.pointOfContacts && dataItem.pointOfContacts.length > 0 ? dataItem.pointOfContacts[0] : null;
-            return contact ? contact.name : '—';
-        };
-    }
-
-    function createPointOfContactsEditor(container, options) {
-        $('<input required name="' + options.field + '" data-required-msg="Point of Contact is required"/>') 
-            .appendTo(container)
-            .kendoDropDownList({
-                dataTextField: "name",
-                dataValueField: "id",
-                dataSource: contactsData,
-                value: options.model.pointOfContacts && options.model.pointOfContacts.length > 0 ? options.model.pointOfContacts[0].id : null,
-                change: function(e) {
-                    const selectedId = this.value();
-                    const selectedUser = contactsData.find(c => c.id == selectedId);
-                    options.model.set(options.field, selectedUser ? [selectedUser] : []);
-                }
-            });
-    }
-
-    $("#OojGrid").kendoGrid({
-        dataSource: oojDataSource,
-        pageable: false,
-        scrollable: false,
-        toolbar: ["create", "save", "cancel"], 
-        columns: [
-             {
-                field: "oojInfections", 
-                title: "Infection",
-                //headerTemplate: "Infections <span class='header-tooltip-icon'>&#9432;</span>",
-                width: 180,
-                headerAttributes: { "data-tooltip-content": "Select the primary infection type related to the Out-of-Jurisdiction case." },
-                template: createTaxonomyTemplate("oojInfections"), 
-                editor: function(container, options) { 
-                    createSingleSelectEditor(container, options, { 
-                        fieldName: "oojInfections", 
-                        dataSource: oojInfectionsData, 
-                        placeholder: "Select Infection..." 
-                    }); 
-                }
-            },
-            {
-                field: "oojActivities", 
-                title: "Activity",
-                //headerTemplate: "Activity <span class='header-tooltip-icon'>&#9432;</span>",
-                width: 180,
-                 headerAttributes: { "data-tooltip-content": "Select the activity or activities performed for this case." },
-                template: createTaxonomyTemplate("oojActivities"), 
-                editor: function(container, options) { 
-                    createSingleSelectEditor(container, options, { 
-                        fieldName: "oojActivities", 
-                        dataSource: oojActivitiesData, 
-                        placeholder: "Select Activity..." 
-                    }); 
-                } 
-            },
-            { 
-                field: "lastDateOfExposure", 
-                title: "Last Date of Exposure",
-                headerTemplate: "Last Date of Exposure <span class='header-tooltip-icon'>&#9432;</span>",
-                width: 150,
-                 headerAttributes: { "data-tooltip-content": "Timeframe within which a partner/contact's exposure to an infection is eligible for investigation (e.g. syphilis exposure that occurred within the past 90 days). Complete this when the Activity is Partner Services: Partner/Contact." }
-            },
-            { 
-                field: "dispositionsReturned", 
-                title: "Dispo/Info Returned",
-                headerTemplate: "Dispo/Info Returned <span class='header-tooltip-icon'>&#9432;</span>",
-                width: 160,
-                headerAttributes: { "data-tooltip-content": "Indicate if/when you will return a disposition or information for requested activities." }
-            },
-            {
-                field: "methodsOfTransmitting", 
-                title: "Method(s) of Transmitting",
-                //headerTemplate: "Method(s) of Transmitting <span class='header-tooltip-icon'>&#9432;</span>", 
-                width: 180,
-                headerAttributes: { "data-tooltip-content": "Select the method(s) used for transmitting information for this case." }, 
-                template: createTaxonomyTemplate("methodsOfTransmitting"), 
-                editor: function(container, options) { 
-                    createMultiSelectEditor(container, options, { 
-                        fieldName: "methodsOfTransmitting", 
-                        dataSource: methodsTransmittingData, 
-                        placeholder: "Select Methods..." 
-                    }); 
-                } 
-            },                      
-            {
-                field: "acceptableForPiis", 
-                title: "Acceptable for PII",
-                //headerTemplate: "Acceptable for PII <span class='header-tooltip-icon'>&#9432;</span>",
-                width: 180,
-                headerAttributes: { "data-tooltip-content": "Select the types of Personally Identifiable Information acceptable for transmission." },
-                template: createTaxonomyTemplate("acceptableForPiis"), 
-                editor: function(container, options) { 
-                    createMultiSelectEditor(container, options, { 
-                        fieldName: "acceptableForPiis", 
-                        dataSource: acceptablePiisData, 
-                        placeholder: "Select PII..." 
-                    }); 
-                } 
-            },
-            {
-                field: "oojPhone",
-                title: "Phone",
-                //headerTemplate: "Phone <span class='header-tooltip-icon'>&#9432;</span>",
-                headerAttributes: { "data-tooltip-content": "Phone number associated with the OOJ case details." }, 
-                width: 130,
-                template: function(dataItem) {
-                    const rawValue = dataItem.oojPhone;
-                    if (typeof rawValue === 'string' || typeof rawValue === 'number') {
-                        const digits = String(rawValue).replace(/\D/g, ''); 
-                        if (digits.length === 10) {
-                            return `(${digits.substring(0, 3)}) ${digits.substring(3, 6)}-${digits.substring(6, 10)}`;
-                        }
-                        return digits;
-                    }
-                    return "—"; 
-                }
-            },
-            {
-                field: "oojFax",
-                title: "Fax",
-                //headerTemplate: "Fax <span class='header-tooltip-icon'>&#9432;</span>",
-                headerAttributes: { "data-tooltip-content": "Fax number associated with the OOJ case details." }, 
-                width: 130,
-                template: function(dataItem) {
-                    const rawValue = dataItem.oojFax;
-                    if (typeof rawValue === 'string' || typeof rawValue === 'number') {
-                        const digits = String(rawValue).replace(/\D/g, ''); 
-                        if (digits.length === 10) {
-                            return `(${digits.substring(0, 3)}) ${digits.substring(3, 6)}-${digits.substring(6, 10)}`;
-                        }
-                        return digits;
-                    }
-                    return "—";
-                }
-            },
-            { 
-                field: "oojEmail", 
-                title: "Email",
-                //headerTemplate: "Email <span class='header-tooltip-icon'>&#9432;</span>", 
-                headerAttributes: { "data-tooltip-content": "Email address associated with the OOJ case details." }, 
-                width: 180,
-                format: "{0:c}"
-            },
-            {
-                field: "pointOfContacts", 
-                title: "Point of Contact",
-                //headerTemplate: "Point of Contact <span class='header-tooltip-icon'>&#9432;</span>",
-                width: 180,
-                 headerAttributes: { "data-tooltip-content": "Select the primary point of contact within your jurisdiction for this case." },
-                template: createPointOfContactsTemplate(), 
-                editor: createPointOfContactsEditor
-            },
-            {
-                field: "notes", 
-                title: "Notes",
-                //headerTemplate: "Notes <span class='header-tooltip-icon'>&#9432;</span>",
-                width: 200,
-                headerAttributes: { "data-tooltip-content": "Enter any relevant notes for this OOJ case." }
-            },
-            { command: ["edit", "destroy"], title: "&nbsp;", width: "180px" }
-        ],
-        editable: "inline",
-         save: function(e) {
-            console.log("OOJ Grid save event. Model validation should occur.", e.model);
-        }
-    });
-
-    $("#OojGrid .k-grid-header").kendoTooltip({
-        filter: ".header-tooltip-icon",
-        position: "bottom",
-        content: function(e) {
-            var th = $(e.target).closest('th'); 
-            var tooltipContent = th.data("tooltip-content");
-            return tooltipContent || "No description";
-        },
-        width: 200,
-        showAfter: 750 
-    });
 }
 </script>
