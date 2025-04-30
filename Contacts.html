@@ -1,222 +1,21 @@
 <script>
-  // GraphQL queries defined at the top of the file for better maintainability
-  const FETCH_OOJ_INFECTIONS_QUERY = `
-    query GetOojInfections {
-      oOJInfections {
-        nodes {
-          databaseId
-          name
-        }
-      }
-    }
-  `;
-
-  const FETCH_OOJ_ACTIVITIES_QUERY = `
-    query GetOojActivities {
-      oOJActivities {
-        nodes {
-          databaseId
-          name
-        }
-      }
-    }
-  `;
-
-  const FETCH_HIV_ROLES_QUERY = `
-    query GetHivRoles {
-      hIVRoles {
-        nodes {
-          databaseId
-          name
-        }
-      }
-    }
-  `;
-
-  const FETCH_STI_ROLES_QUERY = `
-    query GetStiRoles {
-      sTIRoles {
-        nodes {
-          databaseId
-          name
-        }
-      }
-    }
-  `;
-
-  const FETCH_METHODS_OF_TRANSMISSION_QUERY = `
-    query GetMethodsOfTransmission {
-      methodsOfTransmitting {
-        nodes {
-          databaseId
-          name
-        }
-      }
-    }
-  `;
-
-  const FETCH_ALL_USERS_QUERY = `
-  query GetAllUsers {
-    users(first: 1000) {
-      nodes {
-        databaseId
-        firstName
-        lastName
-        email
-        name
-        stdContactDetails {
-          userJurisdiction { nodes { databaseId } }
-          hivRole { nodes { databaseId } }
-          stiRole { nodes { databaseId } }
-          userPhone
-          userFax
-          notesStiHiv
-        }
-      }
-    }
-  }
-`;
-
-const FETCH_USERS_BY_JURISDICTION_QUERY = `
-  query GetUsersByJurisdiction($jurisdictionId: Int!) {
-    users(where: { jurisdictionDatabaseId: $jurisdictionId },
-    first: 100) {
-      nodes {
-        databaseId
-        firstName
-        lastName
-        email
-        stdContactDetails {
-          userJurisdiction { nodes { databaseId } }
-          hivRole { nodes { databaseId } }
-          stiRole { nodes { databaseId } }
-          userPhone
-          userFax
-          notesStiHiv
-        }
-      }
-    }
-  }
-`;
-
-  const FETCH_ALL_JURISDICTIONS_QUERY = `
-    query GetAllJurisdictions {
-      jurisdictions(first: 100) {
-        nodes {
-          databaseId
-          title
-          date
-          modified
-          jurisdictionDetails {
-            addressJurisdiction
-            agencyName
-            fipsCode
-            phoneJurisdiction
-            faxJurisdiction
-          }
-        }
-      }
-    }
-  `;
-
-  const READ_OOJ_DETAILS_QUERY = `
-    query GetOOJDetailsByJurisdiction($jurisdictionId: Int!) {
-      oOJDetails(where: {jurisdictionId: $jurisdictionId}) {
-        nodes {
-          id
-          databaseId
-          title
-          date
-          oojDetailsFields {
-            jurisdictionSelection {
-              nodes {
-                databaseId
-                id
-              }
-            }
-            lastDateOfExposure
-            dispositionsReturned
-            acceptAndInvestigate
-            notes
-            pointOfContacts {
-              nodes {
-                id
-                databaseId
-                firstName
-                lastName
-                email
-              }
-            }
-          }
-          oOJInfections {
-            nodes {
-              id
-              databaseId
-              name
-            }
-          }
-          oOJActivities {
-            nodes {
-              id
-              databaseId
-              name
-            }
-          }
-          methodsOfTransmitting {
-            nodes {
-              id
-              databaseId
-              name
-            }
-          }
-          acceptableForPiis {
-            nodes {
-              id
-              databaseId
-              name
-            }
-          }
-        }
-      }
-    }
-  `;
-
-  const FETCH_JURISDICTION_QUERY = `
-    query GetJurisdiction($id: ID!) {
-      jurisdiction(id: $id, idType: DATABASE_ID) {
-        databaseId
-        title
-        modified
-        jurisdictionDetails {
-          fipsCode
-          agencyName
-          addressJurisdiction
-          phoneJurisdiction
-        }
-      }
-    }
-  `;
+  // REST API endpoint
+  const stdBaseUrl = "https://hivstiooj.cste.org/wp-json/wp/v2";
 
   // Global variables
-  var selectedJurisdictionId = null; // Use a more descriptive name
-var currentUserId = null;
-  var currentUserId = null;
+  var selectedJurisdictionId = null; // ID of the jurisdiction selected in the dropdown
   var oojInfectionList = [];
   var oojActivityList = [];
-  var jurisdictionUsersList = [];
+  // var jurisdictionUsersList = []; // REMOVED - Contact Grid fetches its own data
   var stiRoleList = [];
   var hivRoleList = [];
   var jurisdictionDropdown;
   var jurisdictionGrid;
   var oojJurisdictionGrid;
   var contactGrid;
-  var jurisdictionList = [];
-  var oojDetails = oojDetails || [];
-  var allJurisdictionList = [];
+  var allJurisdictionList = []; // Holds all jurisdictions fetched initially
   var methodsOfTransmissionList = [];
-
-  // GraphQL endpoint
-  const graphqlEndpoint = "https://hivstiooj.cste.org/graphql";
+  var acceptablePiisData = []; // <-- ADDED: Declare the global variable
 
   // Logger utility for consistent logging
   const logger = {
@@ -231,91 +30,78 @@ var currentUserId = null;
     }
   };
 
+  // --- Helper function to add Nonce to AJAX requests ---
+  function addNonceToAjax(xhr) {
+      if (typeof wpApiSettings !== 'undefined' && wpApiSettings.nonce) {
+          xhr.setRequestHeader('X-WP-Nonce', wpApiSettings.nonce);
+      } else {
+          logger.error("WP Nonce (wpApiSettings.nonce) is missing!");
+      }
+  }
+  // --- End Helper ---
+
   $(document).ready(function () {
     initializeApplication();
   });
 
-  // Helper function for making GraphQL requests
-  async function makeGraphQLRequest(query, variables = {}) {
-    try {
-      logger.info('Making GraphQL request with:', {
-        query: query,
-        variables: variables
-      });
-
-      const response = await fetch(graphqlEndpoint, {
-        method: 'POST',
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        },
-        body: JSON.stringify({
-          query,
-          variables
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const result = await response.json();
-
-      if (result.errors) {
-        logger.error('GraphQL response contains errors:', result.errors);
-        throw new Error(result.errors[0].message);
-      }
-
-      return result;
-    } catch (error) {
-      logger.error('GraphQL request failed:', error);
-      throw error;
-    }
-  }
-
-  // Main initialization function
+  // Main initialization function - Uses REST API
   async function initializeApplication() {
     try {
-      logger.info("Initializing application with GraphQL...");
+      logger.info("Initializing application with REST API...");
       
-      // Fetch all necessary data using GraphQL
+      // Fetch all necessary taxonomy and jurisdiction data using REST API
       const [
         oojInfectionData,
         oojActivityData,
         hivRoleData,
         stiRoleData,
         methodsOfTransmissionData,
-        jurisdictionUsersData,
+        fetchedAcceptablePiisData,
         allJurisdictionData
       ] = await Promise.all([
-        fetchOojInfections(),
-        fetchOojActivities(),
-        fetchHivRoles(),
-        fetchStiRoles(),
-        fetchMethodsOfTransmission(),
-        fetchAllUsers(),
-        fetchAllJurisdictions()
+        $.ajax({ url: stdBaseUrl + '/acf-ooj-infection?_fields=id,name&per_page=100', method: 'GET', beforeSend: addNonceToAjax }).catch(() => []),
+        $.ajax({ url: stdBaseUrl + '/acf-ooj-activity?_fields=id,name&per_page=100', method: 'GET', beforeSend: addNonceToAjax }).catch(() => []),
+        $.ajax({ url: stdBaseUrl + '/hiv-role?_fields=id,name&per_page=100', method: 'GET', beforeSend: addNonceToAjax }).catch(() => []),
+        $.ajax({ url: stdBaseUrl + '/sti-role?_fields=id,name&per_page=100', method: 'GET', beforeSend: addNonceToAjax }).catch(() => []),
+        $.ajax({ url: stdBaseUrl + '/iccr_method-of-transmitting?_fields=id,name&per_page=100', method: 'GET', beforeSend: addNonceToAjax }).catch(() => []),
+        $.ajax({ url: stdBaseUrl + '/acceptable-for-pii?_fields=id,name&per_page=100', method: 'GET', beforeSend: addNonceToAjax }).catch(() => []),
+        $.ajax({ url: stdBaseUrl + '/std_jurisdiction?_fields=id,title,modified,acf&per_page=3000', method: 'GET', beforeSend: addNonceToAjax }).catch(() => []) // Fetch all jurisdictions
       ]);
-      
-      // Set the global variables
-      oojInfectionList = oojInfectionData;
-      oojActivityList = oojActivityData;
-      hivRoleList = hivRoleData;
-      stiRoleList = stiRoleData;
-      methodsOfTransmissionList = methodsOfTransmissionData;
-      jurisdictionUsersList = jurisdictionUsersData;
-      allJurisdictionList = allJurisdictionData;
+
+      // Set the global variables - Map data to consistent {id, name} or expected structure
+      oojInfectionList = (oojInfectionData || []).map(item => ({ id: item.id, name: item.name }));
+      oojActivityList = (oojActivityData || []).map(item => ({ id: item.id, name: item.name }));
+      hivRoleList = (hivRoleData || []).map(item => ({ id: item.id, name: item.name }));
+      stiRoleList = (stiRoleData || []).map(item => ({ id: item.id, name: item.name }));
+      methodsOfTransmissionList = (methodsOfTransmissionData || []).map(item => ({ id: item.id, name: item.name }));
+      acceptablePiisData = (fetchedAcceptablePiisData || []).map(item => ({ id: item.id, name: item.name }));
+      allJurisdictionList = (allJurisdictionData || []).map(jurisdiction => ({ // Map jurisdiction data
+        id: jurisdiction.id,
+        title: jurisdiction.title || { rendered: "Unnamed" }, // Ensure title object exists
+        modified: jurisdiction.modified,
+        acf: jurisdiction.acf || {} // Ensure acf object exists
+      }));
+
+      // Log mapped data for verification
+      logger.info("Mapped OOJ Infections:", oojInfectionList);
+      logger.info("Mapped OOJ Activities:", oojActivityList);
+      logger.info("Mapped HIV Roles:", hivRoleList);
+      logger.info("Mapped STI Roles:", stiRoleList);
+      logger.info("Mapped Methods of Transmission:", methodsOfTransmissionList);
+      logger.info("Mapped Acceptable PIIs:", acceptablePiisData);
+      logger.info("Mapped All Jurisdictions:", allJurisdictionList);
       
       // Initialize the UI components
       initializeJurisdictionDropdown();
       initializeJurisdictionGrid();
-      initializeOojGrid(); 
-      initializeContactGrid();
+      initializeOojGrid(); // OOJ Grid already uses REST DataSource
+      initializeContactGrid(); // Contact Grid now uses REST DataSource
       
-      logger.info("Application initialized successfully");
+      logger.info("Application initialized successfully (REST API)");
     } catch (error) {
-      logger.error("Error initializing application:", error);
+      logger.error("Error initializing application (REST API):", error);
+      // Consider showing a user-friendly error message here
+       alert("Failed to load initial application data. Please check the console and try refreshing the page.");
     }
   }
 
@@ -325,19 +111,11 @@ var currentUserId = null;
  * @returns {string} - Comma-separated string of names, or an empty string if input is invalid/empty.
  */
  function formatExcelTaxonomy(taxonomyItems) {
-  console.log('>>> formatExcelTaxonomy - Received input:', JSON.stringify(taxonomyItems)); // Keep for checking input
-
-  // *** REMOVED the initial if (!Array.isArray...) check ***
-
-  // Directly attempt to filter and map. These methods are usually safe on empty/array-like objects.
+  // console.log('>>> formatExcelTaxonomy - Received input:', JSON.stringify(taxonomyItems)); // Keep for checking input
   try {
       const items = taxonomyItems || []; // Ensure we have an array or default to empty
       return items
-        .filter(item => {
-            const isValid = item && typeof item.name === 'string';
-            // console.log('Taxonomy Filter - item:', JSON.stringify(item), ' | typeof name:', typeof item?.name, ' | Filter passes?:', isValid);
-            return isValid;
-        })
+        .filter(item => item && typeof item.name === 'string')
         .map(item => item.name)
         .join(", ");
    } catch (err) {
@@ -352,211 +130,78 @@ var currentUserId = null;
  * @returns {string} - Comma-separated string of full names (FirstName LastName), or an empty string if input is invalid/empty.
  */
 function formatExcelContacts(contactItems) {
-  console.log('>>> formatExcelContacts - Received input:', JSON.stringify(contactItems)); // Keep for checking input
-
-  // *** REMOVED the initial if (!Array.isArray...) check ***
-
-  // Directly attempt to filter and map.
+  // console.log('>>> formatExcelContacts - Received input:', JSON.stringify(contactItems)); // Keep for checking input
   try {
       const items = contactItems || []; // Ensure we have an array or default to empty
       return items
-        .filter(item => {
-            const isValid = item && typeof item.firstName === 'string' && typeof item.lastName === 'string';
-            // console.log('Contact Filter - item:', JSON.stringify(item), ' | typeof firstName:', typeof item?.firstName, ' | typeof lastName:', typeof item?.lastName, ' | Filter passes?:', isValid);
-            return isValid;
-        })
+        .filter(item => item && typeof item.firstName === 'string' && typeof item.lastName === 'string')
         .map(item => `${item.firstName} ${item.lastName}`.trim())
         .join(", ");
   } catch (err) {
       console.error("Error during formatExcelContacts processing:", err, "Input was:", contactItems);
       return ""; // Return empty string on error
   }
-}
-  
-  
-  async function fetchOojInfections() {
-    const result = await makeGraphQLRequest(FETCH_OOJ_INFECTIONS_QUERY);
-    return result.data.oOJInfections.nodes.map(node => ({
-      id: node.databaseId,
-      name: node.name
-    }));
-  }
-
-  async function fetchOojActivities() {
-    const result = await makeGraphQLRequest(FETCH_OOJ_ACTIVITIES_QUERY);
-    return result.data.oOJActivities.nodes.map(node => ({
-      id: node.databaseId,
-      name: node.name
-    }));
-  }
-
-  async function fetchHivRoles() {
-    const result = await makeGraphQLRequest(FETCH_HIV_ROLES_QUERY);
-    return result.data.hIVRoles.nodes.map(node => ({
-      id: node.databaseId,
-      name: node.name
-    }));
-  }
-
-  async function fetchStiRoles() {
-    const result = await makeGraphQLRequest(FETCH_STI_ROLES_QUERY);
-    return result.data.sTIRoles.nodes.map(node => ({
-      id: node.databaseId,
-      name: node.name
-    }));
-  }
-
-  async function fetchMethodsOfTransmission() {
-    const result = await makeGraphQLRequest(FETCH_METHODS_OF_TRANSMISSION_QUERY);
-    return result.data.methodsOfTransmitting.nodes.map(node => ({
-      id: node.databaseId,
-      name: node.name
-    }));
-  }
-
-  async function fetchAllUsers() {
-  const result = await makeGraphQLRequest(FETCH_ALL_USERS_QUERY);
-  return result.data.users.nodes.map(user => ({
-    id: user.databaseId, // Using databaseId as 'id' for the list item
-    databaseId: user.databaseId, // Keep original databaseId if needed elsewhere
-    name: user.name,
-    first_name: user.firstName,
-    last_name: user.lastName,
-    email: user.email,
-    acf: {
-      user_jurisdiction: user.stdContactDetails?.userJurisdiction?.nodes?.[0]?.databaseId || null,
-      hiv_role: user.stdContactDetails?.hivRole?.nodes?.map(role => role.databaseId) || [],
-      sti_role: user.stdContactDetails?.stiRole?.nodes?.map(role => role.databaseId) || [],
-      phone_user: user.stdContactDetails?.userPhone || '',
-      fax_user: user.stdContactDetails?.userFax || '',
-      notes_sti_hiv: user.stdContactDetails?.notesStiHiv || ''
-    }
-  }));
-}
-  async function fetchAllJurisdictions() {
-    // Just get the jurisdictions without OOJ details
-    const result = await makeGraphQLRequest(FETCH_ALL_JURISDICTIONS_QUERY);
-    
-    return result.data.jurisdictions.nodes.map(jurisdiction => ({
-      id: jurisdiction.databaseId,
-      title: { rendered: jurisdiction.title },
-      modified: jurisdiction.modified,
-      acf: {
-        fips_code: jurisdiction.jurisdictionDetails?.fipsCode || '',
-        agency_name: jurisdiction.jurisdictionDetails?.agencyName || '',
-        address_jurisdiction: jurisdiction.jurisdictionDetails?.addressJurisdiction || '',
-        phone_jurisdiction: jurisdiction.jurisdictionDetails?.phoneJurisdiction || '',
-        ooj_details: [] // Empty placeholder - will be loaded on demand
-      }
-    }));
-  }
-
-  // Fetch OOJ details for a specific jurisdiction
-  async function fetchOojDetailsForJurisdiction(jurisdictionId) {
-    try {
-      const result = await makeGraphQLRequest(READ_OOJ_DETAILS_QUERY, {
-        jurisdictionId: parseInt(jurisdictionId, 10)
-      });
-      
-      if (result.data && result.data.oOJDetails && result.data.oOJDetails.nodes) {
-        return result.data.oOJDetails.nodes.map(node => ({
-          ooj_id: node.databaseId,
-          ooj_infection: node.oOJInfections?.nodes?.[0]?.databaseId || null,
-          ooj_activity: node.oOJActivities?.nodes?.map(activity => activity.databaseId) || [],
-          accept_and_investigate_last_date_of_exposure: node.oojDetailsFields?.lastDateOfExposure || '',
-          dispositions_returned: node.oojDetailsFields?.dispositionsReturned || '',
-          accept_and_investigate: node.oojDetailsFields?.acceptAndInvestigate || '',
-          method_of_transmitting: node.methodsOfTransmitting?.nodes?.map(method => method.databaseId) || [],
-          point_of_contacts: node.oojDetailsFields?.pointOfContacts?.nodes?.map(contact => contact.databaseId) || [],
-          notes: node.oojDetailsFields?.notes || ''
-        }));
-      }
-      return [];
-    } catch (error) {
-      logger.error(`Error fetching OOJ details for jurisdiction ${jurisdictionId}:`, error);
-      return [];
-    }
-  }
-
-  // Backward compatibility function for REST API calls
-  function getJSONfromUrl(url) {
-    logger.warn("getJSONfromUrl is deprecated. Please use GraphQL fetch functions instead.");
-    
-    return new Promise((resolve, reject) => {
-      // Extract the endpoint type from the URL to determine what GraphQL query to use
-      if (url.includes("ooj-infection")) {
-        fetchOojInfections().then(resolve).catch(reject);
-      }
-      else if (url.includes("ooj-activity")) {
-        fetchOojActivities().then(resolve).catch(reject);
-      }
-      else if (url.includes("hiv-role")) {
-        fetchHivRoles().then(resolve).catch(reject);
-      }
-      else if (url.includes("sti-role")) {
-        fetchStiRoles().then(resolve).catch(reject);
-      }
-      else if (url.includes("method-of-transmitting")) {
-        fetchMethodsOfTransmission().then(resolve).catch(reject);
-      }
-      else if (url.includes("users")) {
-        fetchAllUsers().then(resolve).catch(reject);
-      }
-      else if (url.includes("std_jurisdiction")) {
-        fetchAllJurisdictions().then(resolve).catch(reject);
-      }
-      else {
-        reject(new Error("Unknown URL type: " + url));
-      }
-    });
   }
 
   // Initialize the jurisdiction dropdown
   function initializeJurisdictionDropdown() {
+    // 1. Map the fetched jurisdictions to the simple {id, title} format
+    const mappedJurisdictions = allJurisdictionList
+        .map(item => ({
+            id: item.id,
+            title: item.title?.rendered || "Unnamed Jurisdiction" // Use rendered title directly
+        }))
+        .sort((a, b) => a.title.localeCompare(b.title)); // Sort alphabetically by title
+
+    // 2. Prepare the final data array with "ALL" at the top
+    const dropdownData = [
+        { id: "ALL", title: "ALL" } // Add the "ALL" option first
+    ].concat(mappedJurisdictions); // Add the sorted jurisdictions
+
+    logger.info("Data prepared for Jurisdiction Dropdown:", dropdownData);
+
+    // 3. Initialize the DropDownList with the prepared data
     jurisdictionDropdown = $("#jurisdictionDropdown").kendoDropDownList({
-      dataTextField: "title",
+      dataTextField: "title", // Now directly references the 'title' property in dropdownData
       dataValueField: "id",
-      dataSource: {
-        data: [{id: "ALL", title: "ALL"}].concat(
-          allJurisdictionList
-            .map((item) => ({
-              id: item.id,
-              title: item.title.rendered,
-            }))
-            .sort((a, b) => a.title.localeCompare(b.title))
-        ),
-      },
+      dataSource: dropdownData, // Use the pre-processed array
+      // No schema.data needed anymore for this static list
+      valueTemplate: '#:title#', // Template uses the 'title' property
+      template: '#:title#', // Template uses the 'title' property
       optionLabel: "Select a Jurisdiction...",
       change: function(e) {
-         // Update the GLOBAL variable
-         selectedJurisdictionId = this.value();
+         selectedJurisdictionId = this.value(); // Get the selected ID (or "ALL")
          logger.info("Jurisdiction selected:", selectedJurisdictionId);
 
-         // Update the other grids
+         // Update the Jurisdiction Info Grid
          updateJurisdictionGrid(selectedJurisdictionId);
-         updateContactGrid(selectedJurisdictionId);
 
-         // --- Update for OOJ Grid ---
+         // Trigger reads for the other grids using their REST DataSources
+         if (contactGrid && contactGrid.dataSource) {
+             logger.info("Triggering Contact Grid DataSource read for selection:", selectedJurisdictionId);
+             contactGrid.dataSource.read();
+         }
          if (oojJurisdictionGrid && oojJurisdictionGrid.dataSource) {
-             // Always trigger the dataSource read.
-             // The URL function within the transport will handle whether to fetch ALL or a specific ID.
-             console.log("Triggering OOJ Grid DataSource read for selection:", selectedJurisdictionId);
+             logger.info("Triggering OOJ Grid DataSource read for selection:", selectedJurisdictionId);
              oojJurisdictionGrid.dataSource.read();
          }
-         // --- End Update for OOJ Grid ---
      }
     }).data("kendoDropDownList");
+
+    logger.info("Jurisdiction Dropdown Initialized.");
   }
 
-  // Initialize the jurisdiction grid
+  // Initialize the jurisdiction grid (displays info for the SINGLE selected jurisdiction)
   function initializeJurisdictionGrid() {
     jurisdictionGrid = $("#jurisdictionGrid").kendoGrid({
       dataSource: {
-        data: [],
+        data: [], // Initially empty, populated by updateJurisdictionGrid
         schema: {
           model: {
+            id: "id", // Add id field if needed for Kendo operations
             fields: {
-              title: {type: "string"},
+              id: { editable: false, nullable: true },
+              title: {type: "string"}, // Mapped from title.rendered
               fips_code: {type: "string"},
               agency_name: {type: "string"},
               address_jurisdiction: {type: "string"},
@@ -565,7 +210,6 @@ function formatExcelContacts(contactItems) {
             },
           },
         },
-        sort: {field: "title", dir: "asc"},
       },
       columns: [
         {field: "title", title: "Jurisdiction Name"},
@@ -577,1054 +221,725 @@ function formatExcelContacts(contactItems) {
           field: "modified",
           title: "Last Updated",
           template: function (dataItem) {
-            if (dataItem.modified === "0000-00-00T00:00:00") {
-              return "00/00/0000";
-            } else {
-              return kendo.toString(
-                kendo.parseDate(dataItem.modified),
-                "MM/dd/yyyy"
-              );
+            // Basic check for valid date string
+            if (!dataItem.modified || dataItem.modified === "0000-00-00T00:00:00") {
+                return "N/A";
+            }
+            try {
+                return kendo.toString(kendo.parseDate(dataItem.modified), "MM/dd/yyyy");
+            } catch (e) {
+                logger.warn("Could not parse date:", dataItem.modified);
+                return "Invalid Date";
             }
           },
         },
       ],
-      sortable: true,
-      pageable: false,
-    
+      sortable: false
     }).data("kendoGrid");
   }
 
-  // Initialize the OOJ grid
-// Assuming helper functions createTaxonomyTemplate, createPointOfContactsTemplate
-// and global data lists (oojInfectionList, etc., contactsData/jurisdictionUsersList) are available
-function createPointOfContactsTemplate() {
-      return function(dataItem) {
-          return dataItem.pointOfContacts && dataItem.pointOfContacts.length ? 
-              dataItem.pointOfContacts.map(c => `${c.firstName} ${c.lastName}`).join(', ') : '—';
-      };
-  }
-
-  function createTaxonomyTemplate(fieldName) {
-      return function(dataItem) {
-          return dataItem[fieldName] && dataItem[fieldName].length ? 
-              dataItem[fieldName].map(item => item.name).join(', ') : '—';
-      };
-  }
-
-/**
- * Initializes the OOJ Grid using the REST API.
- * Assumes dependent helper functions (extractIds, create..., etc.)
- * and global data lists (contactsData, oojInfectionList, etc.) are available.
- * Assumes global 'selectedJurisdictionId' is updated by the dropdown.
- */
+  // Initialize the OOJ grid - Already uses REST API DataSource
  function initializeOojGrid() {
-    // Helper functions for ID extraction
+    // Helper functions for ID extraction (remains the same)
     function extractIds(items) {
         if (!Array.isArray(items) || items.length === 0) return [];
-        // Ensure we extract the numeric ID (databaseId or id)
-        return items.map(item => typeof item === 'object' ? (item.databaseId ?? item.id) : parseInt(item, 10)).filter(id => !isNaN(id));
+        return items.map(item => typeof item === 'object' ? (item.id) : parseInt(item, 10)).filter(id => !isNaN(id));
     }
 
-    // --- Ensure editor/template functions copied from My_Jurisdiction.html are accessible ---
-    // Example: createTaxonomyTemplate, createPointOfContactsTemplate, createOojInfectionEditor, etc.
-    // Also ensure showNotification function exists.
-    // ---
-
-    // OOJ DETAILS GRID DATASOURCE - REST API implementation
     var oojDataSource = new kendo.data.DataSource({
         transport: {
-            // --- CREATE Operation ---
-            create: {
+            create: { /* ... REST create config ... */
                 contentType: "application/json",
-                url: "https://hivstiooj.cste.org/wp-json/wp/v2/ooj-detail",
+                url: stdBaseUrl + "/ooj-detail",
                 type: "POST",
                 xhrFields: { withCredentials: true },
-                beforeSend: function(xhr) {
-                    if (typeof wpApiSettings !== 'undefined' && wpApiSettings.nonce) {
-                        xhr.setRequestHeader('X-WP-Nonce', wpApiSettings.nonce);
-                    } else {
-                        console.error('Create: wpApiSettings.nonce is missing!');
-                    }
-                }
+                beforeSend: addNonceToAjax
             },
             read: {
                url: function() {
-                   // Refined logic for determining the read URL
-                   const currentSelection = selectedJurisdictionId; // Read the global variable
-                   const baseUrl = "https://hivstiooj.cste.org/wp-json/wp/v2/ooj-detail";
-                   const embedParams = "_embed&per_page=100"; // Common parameters
+                   const baseUrl = stdBaseUrl + "/ooj-detail";
+                   const embedParams = "_embed&per_page=3000&acf_format=standard"; // Use max limit, request ACF
 
-                   // Check if a jurisdiction is selected and is not null/undefined
-                   if (currentSelection && currentSelection !== "ALL") {
-                       // A specific jurisdiction is selected
-                       const jurisdictionId = parseInt(currentSelection, 10);
+                   if (selectedJurisdictionId && selectedJurisdictionId !== "ALL") {
+                       const jurisdictionId = parseInt(selectedJurisdictionId, 10);
                        if (!isNaN(jurisdictionId)) {
-                           // Ensure it's a valid number before using it
-                           const specificUrl = `${baseUrl}?jurisdiction=${jurisdictionId}&${embedParams}`;
-                           console.log(`OOJ Grid: Reading specific jurisdiction ID: ${jurisdictionId} via URL: ${specificUrl}`);
+                           // Filter by the ACF field holding the jurisdiction relationship
+                           const specificUrl = `${baseUrl}?acf_jurisdiction_selection=${jurisdictionId}&${embedParams}`;
+                           logger.info(`OOJ Grid: Reading specific jurisdiction ID: ${jurisdictionId} via URL: ${specificUrl}`);
                            return specificUrl;
                        } else {
-                           // Handle cases where the selected ID is not a valid number (though dropdown should prevent this)
-                           console.warn(`OOJ Grid: Invalid non-numeric jurisdiction ID selected: ${currentSelection}. Reading ALL as fallback.`);
+                           logger.warn(`OOJ Grid: Invalid non-numeric jurisdiction ID selected: ${selectedJurisdictionId}. Reading ALL.`);
                            const allUrl = `${baseUrl}?${embedParams}`;
                            return allUrl;
                        }
-                   } else if (currentSelection === "ALL") {
-                       // "ALL" is explicitly selected
-                       const allUrl = `${baseUrl}?${embedParams}`; // URL to get all details
-                       console.log(`OOJ Grid: Reading ALL jurisdictions via URL: ${allUrl}`);
+                   } else if (selectedJurisdictionId === "ALL") {
+                       const allUrl = `${baseUrl}?${embedParams}`;
+                       logger.info(`OOJ Grid: Reading ALL jurisdictions via URL: ${allUrl}`);
                        return allUrl;
                    } else {
-                       // No jurisdiction selected (initial load or cleared selection)
-                       console.warn("OOJ Grid: transport.read.url called with no valid jurisdiction selected. Returning null to prevent load.");
-                       // Return null or an empty string to prevent the Kendo DataSource from making a request
-                       // This is important if the grid should be empty until a selection is made.
-                       return null;
+                       logger.warn("OOJ Grid: transport.read.url called with no valid jurisdiction selected. Returning null.");
+                       return null; // Prevent load if nothing selected
                    }
                },
                type: "GET",
                dataType: "json",
                xhrFields: { withCredentials: true },
-               beforeSend: function(xhr) {
-                   if (typeof wpApiSettings !== 'undefined' && wpApiSettings.nonce) {
-                       xhr.setRequestHeader('X-WP-Nonce', wpApiSettings.nonce);
-                   }
-               }
+               beforeSend: addNonceToAjax
            },
-         update: {
+         update: { /* ... REST update config ... */
                 contentType: "application/json",
-                url: function(options) {
-                    return "https://hivstiooj.cste.org/wp-json/wp/v2/ooj-detail/" + options.id;
-                },
-                type: "POST", // Using POST for WP REST API update often requires this (or PUT with override)
+                url: function(options) { return stdBaseUrl + "/ooj-detail/" + options.id; },
+                type: "POST", // Or PUT with X-HTTP-Method-Override if needed
                 xhrFields: { withCredentials: true },
                 beforeSend: function(xhr) {
-                    if (typeof wpApiSettings !== 'undefined' && wpApiSettings.nonce) {
-                        xhr.setRequestHeader('X-WP-Nonce', wpApiSettings.nonce);
-                    } else {
-                        console.error('Update: wpApiSettings.nonce is missing!');
-                    }
+                    addNonceToAjax(xhr);
                      // If server requires PUT via POST override:
-                     xhr.setRequestHeader('X-HTTP-Method-Override', 'PUT');
+                    // xhr.setRequestHeader('X-HTTP-Method-Override', 'PUT');
                 }
             },
-            // --- DESTROY Operation ---
-            destroy: {
-                url: function(options) {
-                   return "https://hivstiooj.cste.org/wp-json/wp/v2/ooj-detail/" + options.id + "?force=true";
-                },
+            destroy: { /* ... REST destroy config ... */
+                 url: function(options) { return stdBaseUrl + "/ooj-detail/" + options.id + "?force=true"; },
                 type: "DELETE",
                 xhrFields: { withCredentials: true },
-                beforeSend: function(xhr) {
-                   if (typeof wpApiSettings !== 'undefined' && wpApiSettings.nonce) {
-                      xhr.setRequestHeader('X-WP-Nonce', wpApiSettings.nonce);
-                  } else {
-                      console.error('Destroy: wpApiSettings.nonce is missing!');
-                  }
-                }
+                 beforeSend: addNonceToAjax
             },
-            // --- PARAMETER MAP ---
             parameterMap: function(options, operation) {
                 if (operation === "update" || operation === "create") {
-                    console.log(`parameterMap (${operation}): Preparing data from options:`, options);
+                    logger.info(`OOJ parameterMap (${operation}): Preparing data from options:`, options);
 
-                    // Ensure a specific jurisdiction is selected for create/update
-                    if (!selectedJurisdictionId || selectedJurisdictionId === "ALL") {
-                         console.error("Cannot create/update OOJ Detail without a specific selected jurisdiction.");
-                         // Ideally, the save event should prevent this, but double-check here
-                         return "{}"; // Return minimal JSON to avoid breaking Kendo
+                    if ((operation === "create" || operation === "update") && (!selectedJurisdictionId || selectedJurisdictionId === "ALL")) {
+                         logger.error("Cannot create/update OOJ Detail without a specific selected jurisdiction in the dropdown.");
+                         // Prevent Kendo from proceeding by returning non-JSON or triggering an error
+                         // This case *should* be prevented by UI logic, but good to double-check
+                         return "{}"; // Minimal JSON
                     }
 
+                    // Determine the target jurisdiction ID for the payload
+                    // For CREATE, use the globally selected one.
+                    // For UPDATE, the item might already be linked, but WP REST usually needs it in ACF anyway.
+                    // It's generally safer to always send the currently selected jurisdiction for ACF relationship fields.
+                    const targetJurisdictionId = parseInt(selectedJurisdictionId, 10);
+                     if (isNaN(targetJurisdictionId)) {
+                         logger.error(`OOJ parameterMap (${operation}): Cannot proceed, invalid selectedJurisdictionId: ${selectedJurisdictionId}`);
+                         return "{}";
+                     }
+
+
                     const payloadObject = {
-                        title: options.title || "OOJ Detail", // Use title from model if edited, else default
+                        title: options.title || "OOJ Detail",
                         status: "publish",
                         acf: {
-                            jurisdiction_selection: parseInt(selectedJurisdictionId, 10), // Use selectedJurisdictionId
+                             // *** IMPORTANT: Use the CORRECT ACF field name for the relationship ***
+                            jurisdiction_selection: targetJurisdictionId, // Ensure this matches your ACF field key
                             last_date_of_exposure: options.lastDateOfExposure || "",
-                            point_of_contacts: extractIds(options.pointOfContacts) || [],
+                            // Point of Contacts are now single IDs from the dropdown/model
+                            point_of_contacts: options.pointOfContacts ? [options.pointOfContacts] : [], // Send as array even if single for WP ACF
                             dispositions_returned: options.dispositionsReturned || "",
                             accept_and_investigate: options.acceptAndInvestigate || "",
-                            notes: options.notes || ""
+                            notes: options.notes || "",
+                            ooj_phone: options.oojPhone != null ? String(options.oojPhone) : "",
+                            ooj_fax: options.oojFax != null ? String(options.oojFax) : "",
+                            ooj_email: options.oojEmail || ""
                         },
                         // Taxonomies - Pass array of term IDs
-                        'acf-ooj-infection': extractIds(options.oojInfections) || [],
-                        'acf-ooj-activity': extractIds(options.oojActivities) || [],
-                        'iccr_method-of-transmitting': extractIds(options.methodsOfTransmitting) || [],
-                        'acceptable-for-pii': extractIds(options.acceptableForPiis) || []
+                        // Ensure these slugs match the REST API base slugs for the taxonomies
+                        'acf-ooj-infection': options.oojInfections ? [options.oojInfections] : [], // Single select -> array
+                        'acf-ooj-activity': options.oojActivities || [], // Multi-select -> array
+                        'iccr_method-of-transmitting': options.methodsOfTransmitting || [], // Multi-select -> array
+                        'acceptable-for-pii': options.acceptableForPiis || [] // Multi-select -> array
                     };
                     const jsonString = JSON.stringify(payloadObject);
-                    console.log(`parameterMap (${operation}): Returning JSON string:`, jsonString);
+                    logger.info(`OOJ parameterMap (${operation}): Returning JSON string:`, jsonString);
                     return jsonString;
                 }
-                // For 'read', 'destroy'
-                console.log(`parameterMap (${operation}): Using default handling for options:`, options);
+                logger.info(`OOJ parameterMap (${operation}): Using default handling for options:`, options);
                 return options;
             }
-        }, // End transport
+        },
         schema: {
             model: {
-                id: "id", // Use the WP Post ID from REST API response
+                id: "id",
                 fields: {
                     id: { editable: false, nullable: true },
-                    title: { type: "string", defaultValue: "OOJ Detail" }, // Title field for the post itself
-                    // Field names match the desired editable grid structure
-                    oojInfections: { defaultValue: [] },
-                    oojActivities: { defaultValue: [] },
-                    lastDateOfExposure: { type: "string" },
-                    dispositionsReturned: { type: "string" },
-                    acceptAndInvestigate: { type: "string" },
+                    title: { type: "string", defaultValue: "OOJ Detail" },
+                    jurisdictionName: { type: "string", editable: false }, // Populated in parse
+                    // Taxonomy fields store arrays of IDs
+                    oojInfections: { defaultValue: [], validation: { required: true, message:"Infection required"} },
+                    oojActivities: { defaultValue: [], validation: { required: true, message:"Activity required"} },
                     methodsOfTransmitting: { defaultValue: [] },
                     acceptableForPiis: { defaultValue: [] },
-                    pointOfContacts: {
-                        defaultValue: [],
-                        validation: { required: true } // Keep validation
-                    },
-                    notes: { type: "string" }
+                    // Point of contacts stores array of contact IDs
+                    pointOfContacts: { defaultValue: [], validation: { required: true, message:"POC required"} }, // Changed to array
+                    // Other fields
+                    lastDateOfExposure: { type: "string" },
+                    dispositionsReturned: { type: "string" },
+                    acceptAndInvestigate: { type: "string" }, // This field seems unused based on comments
+                    notes: { type: "string" },
+                    oojPhone: { type: "string" },
+                    oojFax: { type: "string" },
+                    oojEmail: { type: "string" }
                 }
             },
             parse: function(response) {
-    // Handles mapping REST API response to Kendo model structure
-    console.log('Attempting to parse REST response:', response);
-    let dataToProcess = [];
-    if (Array.isArray(response)) {
-        dataToProcess = response;
-    } else if (response && typeof response === 'object' && response.id) {
-        dataToProcess = [response]; // Handle single item response (e.g., after create/update)
-    } else {
-         console.warn('REST Response is not an array or valid object:', response);
-         return [];
-    }
+                logger.info('OOJ Grid Parse (REST): Starting. Received response:', response);
+                let dataToProcess = [];
+                if (Array.isArray(response)) { dataToProcess = response; }
+                else if (response && typeof response === 'object' && response.id) { dataToProcess = [response]; }
+                else { logger.warn('OOJ Grid Parse: Response is not an array or valid object:', response); return []; }
 
-    try {
-        // Map items to the Kendo model structure
-        return dataToProcess.map(item => {
-            if (!item || typeof item !== 'object') return null;
+                try {
+                    return dataToProcess.map((item) => {
+                        // logger.info(`\nOOJ Grid Parse: Processing item ID: ${item.id}`);
+                        if (!item || typeof item !== 'object') { logger.warn(`OOJ Grid Parse: Item is invalid.`, item); return null; }
 
-            const acfData = item.acf || {};
-            const mappedItem = {
-                id: item.id,
-                title: item.title?.rendered || item.title?.raw || "OOJ Detail", // Prefer rendered title
-                lastDateOfExposure: acfData.last_date_of_exposure || "",
-                dispositionsReturned: acfData.dispositions_returned || "",
-                acceptAndInvestigate: acfData.accept_and_investigate || "",
-                notes: acfData.notes || "",
-                pointOfContacts: [], // Initialize arrays
-                oojInfections: [],
-                oojActivities: [],
-                methodsOfTransmitting: [],
-                acceptableForPiis: []
-            };
+                        const acfData = item.acf || {};
+                        const embeddedData = item._embedded || {};
+                        let jurisdictionName = "Unknown"; // Default
 
-            // --- Map Point of Contacts using _embedded data ---
-            const embeddedUsers = item._embedded && item._embedded['acf:user'];
-            if (embeddedUsers && Array.isArray(embeddedUsers)) {
-                mappedItem.pointOfContacts = embeddedUsers.map(user => {
-                    if (!user || !user.id || typeof user.name !== 'string') {
-                        return null; // Skip invalid embedded user objects
-                    }
-                    // Simple name splitting (adjust if names are more complex)
-                    const nameParts = user.name.trim().split(' ');
-                    const firstName = nameParts[0] || '';
-                    const lastName = nameParts.slice(1).join(' ') || ''; // Handle potential middle names
+                         // --- Jurisdiction Name Lookup ---
+                        let jurisdictionId = null;
+                        // Check ACF field first (assuming it returns an object with ID and post_title when embedded, or just ID otherwise)
+                        const jurSelection = acfData.jurisdiction_selection; // Adjust field name if needed
+                        if (jurSelection && typeof jurSelection === 'object' && jurSelection.ID && typeof jurSelection.post_title === 'string') {
+                            jurisdictionId = parseInt(jurSelection.ID, 10);
+                            jurisdictionName = jurSelection.post_title;
+                            // logger.info(`OOJ Grid Parse: Item ${item.id} - Found jurisdiction in ACF object: "${jurisdictionName}" (ID: ${jurisdictionId})`);
+                        } else if (jurSelection !== null && jurSelection !== undefined && jurSelection !== '') {
+                            // If it's just an ID in ACF
+                            const parsedId = parseInt(jurSelection, 10);
+                                if (!isNaN(parsedId)) {
+                                    jurisdictionId = parsedId;
+                                // logger.info(`OOJ Grid Parse: Item ${item.id} - Parsed jurisdiction ID from ACF: ${jurisdictionId}. Looking up name.`);
+                                // Fallback to global list
+                            const jurisdiction = allJurisdictionList.find(j => j && parseInt(j.id, 10) === jurisdictionId);
+                                if (jurisdiction && jurisdiction.title && typeof jurisdiction.title.rendered === 'string') {
+                                    jurisdictionName = jurisdiction.title.rendered;
+                                    // logger.info(`OOJ Grid Parse: Item ${item.id} - Found name in global list: "${jurisdictionName}"`);
+                                } else {
+                                     logger.warn(`OOJ Grid Parse: Item ${item.id} - ID ${jurisdictionId} from ACF not found in global list or title invalid.`);
+                                }
+                            } else {
+                                logger.warn(`OOJ Grid Parse: Item ${item.id} - Could not parse jurisdiction ID from ACF value:`, jurSelection);
+                            }
+                        } else {
+                             logger.warn(`OOJ Grid Parse: Item ${item.id} - Jurisdiction selection field missing or empty in ACF.`);
+                        }
+                        // --- End Jurisdiction Name Lookup ---
 
-                    return {
-                        id: user.id, // Use the ID from the embedded user object
-                        databaseId: user.id,
-                        firstName: firstName,
-                        lastName: lastName
-                    };
-                }).filter(contact => contact !== null); // Filter out any nulls from invalid embedded data
-            } else {
-                 // Fallback or warning if embedded data is missing
-                 console.warn(`Embedded user data ('_embedded["acf:user"]') missing for OOJ Detail ID: ${item.id}`);
-                 // Optionally, you could try the old lookup method here as a fallback,
-                 // but it's likely to fail based on previous logs.
-                 // mappedItem.pointOfContacts = []; // Keep it empty if no embedded data
-            }
+                        // Helper to extract IDs from embedded terms or ACF fields
+                        const getTermIds = (taxonomySlug) => {
+                            // Prefer embedded terms if available
+                            const terms = embeddedData['wp:term']?.flat()?.filter(t => t.taxonomy === taxonomySlug);
+                            if (terms && terms.length > 0) {
+                                return terms.map(t => t.id);
+                            }
+                            // Fallback to ACF field (if it stores IDs directly)
+                            const acfValue = acfData[taxonomySlug.replace(/-/g, '_')]; // Basic slug to ACF key guess
+                            if (Array.isArray(acfValue)) return acfValue.map(id => parseInt(id, 10)).filter(id => !isNaN(id));
+                            if (acfValue) { const singleId = parseInt(acfValue, 10); return !isNaN(singleId) ? [singleId] : []; }
+                            return [];
+                        };
+                         // Helper to extract User IDs from embedded users or ACF field
+                        const getContactIds = () => {
+                             // Prefer embedded users if available (check common embedded keys)
+                             const embeddedUsers = embeddedData['acf:user'] || embeddedData['authors'] || (Array.isArray(embeddedData['up:user']) ? embeddedData['up:user'] : null) ;
+                             if (embeddedUsers && Array.isArray(embeddedUsers) && embeddedUsers.length > 0) {
+                                 return embeddedUsers.map(u => u.id);
+                             }
+                             // Fallback to ACF field
+                             const acfContacts = acfData.point_of_contacts; // Adjust field name if needed
+                             if (Array.isArray(acfContacts)) return acfContacts.map(id => parseInt(id, 10)).filter(id => !isNaN(id));
+                             if (acfContacts) { const singleId = parseInt(acfContacts, 10); return !isNaN(singleId) ? [singleId] : []; }
+                             return [];
+                        };
 
-            // --- Map Taxonomies using _embedded data (more reliable) ---
-            const embeddedTerms = item._embedded && item._embedded['wp:term'];
-            if (embeddedTerms && Array.isArray(embeddedTerms)) {
-                 embeddedTerms.flat().forEach(term => { // .flat() handles nested arrays if present
-                     if (!term || !term.id || !term.name || !term.taxonomy) return; // Skip invalid term objects
-                     const termObj = { id: term.id, databaseId: term.id, name: term.name };
-                     switch (term.taxonomy) {
-                         case 'acf-ooj-infection': mappedItem.oojInfections.push(termObj); break;
-                         case 'acf-ooj-activity': mappedItem.oojActivities.push(termObj); break;
-                         case 'iccr_method-of-transmitting': mappedItem.methodsOfTransmitting.push(termObj); break;
-                         case 'acceptable-for-pii': mappedItem.acceptableForPiis.push(termObj); break;
-                     }
-                 });
-            } else {
-                 // Fallback or warning if embedded terms are missing
-                 console.warn(`Embedded term data ('_embedded["wp:term"]') missing for OOJ Detail ID: ${item.id}`);
-                 // Could attempt fallback using acf fields + global lists here if needed
-            }
-            // --- End Map Embedded/ACF Data ---
 
-            console.log('Final mapped item for OOJ Grid (using embedded):', JSON.stringify(mappedItem, null, 2));
-            return mappedItem;
-
-        }).filter(item => item !== null); // Filter out any failed mappings
-    } catch (error) {
-        console.error("Error during map operation in parse (REST):", error);
-        return [];
-    }
-}, // End parse function
-error: function(e) {
-                console.error("OOJ DataSource Error:", e);
+                        const mappedItem = {
+                            id: item.id,
+                            title: item.title?.rendered || "OOJ Detail",
+                            jurisdictionName: jurisdictionName,
+                            // Get arrays of IDs using helpers
+                            oojInfections: getTermIds('acf-ooj-infection'),
+                            oojActivities: getTermIds('acf-ooj-activity'),
+                            methodsOfTransmitting: getTermIds('iccr_method-of-transmitting'),
+                            acceptableForPiis: getTermIds('acceptable-for-pii'),
+                            pointOfContacts: getContactIds(), // Get array of contact IDs
+                            // Other ACF fields directly
+                            lastDateOfExposure: acfData.last_date_of_exposure || "",
+                            dispositionsReturned: acfData.dispositions_returned || "",
+                            acceptAndInvestigate: acfData.accept_and_investigate || "", // Seems unused
+                            notes: acfData.notes || "",
+                            oojPhone: acfData.ooj_phone || "",
+                            oojFax: acfData.ooj_fax || "",
+                            oojEmail: acfData.ooj_email || ""
+                        };
+                        // logger.info(`OOJ Grid Parse: Item ${item.id} - Final mapped item:`, mappedItem);
+                        return mappedItem;
+                    }).filter(item => item !== null);
+                } catch (error) {
+                    logger.error("OOJ Grid Parse: Error during map operation:", error);
+                    return [];
+                }
+            },
+            error: function(e) {
+                 logger.error("OOJ DataSource Error:", e);
                 let message = "An error occurred.";
                  if (e.xhr && e.xhr.responseJSON && e.xhr.responseJSON.message) {
                      message = e.xhr.responseJSON.message;
-                 } else if (e.errors) { // Check if Kendo provides errors object
-                     message = Array.isArray(e.errors) ? e.errors.join(", ") : String(e.errors);
-                 } else if (e.xhr && e.xhr.responseText) { // Fallback to raw response
-                     try { message = JSON.parse(e.xhr.responseText).message || message; } catch(ex){}
-                 }
-                 showNotification("Data Error: " + message, 'error'); // Assumes showNotification exists
-                 var grid = $("#ooj_grid").data("kendoGrid"); // Use correct grid ID
+                 } else if (e.errors) { message = Array.isArray(e.errors) ? e.errors.join(", ") : String(e.errors); }
+                 alert("Data Error: " + message); // Simplified alert
+                 var grid = $("#oojJurisdictionGrid").data("kendoGrid");
                  if (grid) { grid.cancelChanges(); }
             }
         }, // End schema
-        
         change: function(e) {
-            // console.log('OOJDataSource change event (REST):', e);
-            // Mark items dirty on change for save button state
-            if (e.action === "itemchange" && e.items && e.items.length > 0) {
-                 e.items[0].dirty = true;
-                 // console.log("Item marked dirty:", e.items[0]);
-            }
+            if (e.action === "itemchange" && e.items && e.items.length > 0) { e.items[0].dirty = true; }
         }
     }); // End DataSource
 
+    // --- Generic Template/Editor Factories (assuming these exist from My Jurisdiction v2) ---
+     function createTaxonomyTemplate(fieldName, isMultiSelect = true) {
+         return function(dataItem) {
+             const ids = dataItem[fieldName]; // Expecting array of IDs
+             if (!ids || ids.length === 0) return '—';
+
+             let lookupList;
+             switch (fieldName) {
+                 case 'oojInfections': lookupList = oojInfectionList; break;
+                 case 'oojActivities': lookupList = oojActivityList; break;
+                 case 'methodsOfTransmitting': lookupList = methodsOfTransmissionList; break;
+                 case 'acceptableForPiis': lookupList = acceptablePiisData; break; // Assuming acceptablePiisData exists
+                 default: return "Unknown Field";
+             }
+
+             return ids.map(id => {
+                 const item = lookupList.find(d => d.id === id);
+                 return item ? item.name : `ID ${id}`;
+             }).join(', ');
+         };
+     }
+
+     function createPointOfContactsTemplate() {
+         return function(dataItem) {
+             const ids = dataItem.pointOfContacts; // Expecting array of IDs
+             if (!ids || ids.length === 0) return '—';
+
+             // Use allJurisdictionList to find user details (assuming it contains users, which it doesn't yet)
+             // *** THIS NEEDS ADJUSTMENT - contactsData is not globally fetched by default anymore ***
+             // For now, just display IDs until contact fetching is finalized
+             return ids.map(id => `Contact ID ${id}`).join(', ');
+             /*
+             return ids.map(id => {
+                 // Find the contact in a globally available list (e.g., fetched during init or on demand)
+                 const contact = contactsData.find(c => c.id === id); // Replace contactsData if needed
+                 return contact ? `${contact.first_name} ${contact.last_name}` : `ID ${id}`;
+             }).join(', ');
+             */
+         };
+     }
+
+     function createSingleSelectEditor(container, options, config) {
+         $('<input required name="' + config.fieldName + '"/>') // Added required
+             .appendTo(container)
+             .kendoDropDownList({
+                 dataTextField: "name",
+                 dataValueField: "id",
+                 dataSource: config.dataSource, // e.g., oojInfectionList
+                 optionLabel: config.placeholder || "Select...",
+                  // Value should be the first ID in the array (or null if empty)
+                 value: (options.model[config.fieldName] && options.model[config.fieldName].length > 0) ? options.model[config.fieldName][0] : null,
+                 change: function(e) {
+                      // Model expects an array, even for single select
+                     const value = this.value();
+                     options.model.set(config.fieldName, value ? [parseInt(value, 10)] : []);
+                 }
+             }).data("kendoDropDownList");
+     }
+
+     function createMultiSelectEditor(container, options, config) {
+         $('<input name="' + config.fieldName + '"/>')
+             .appendTo(container)
+             .kendoMultiSelect({
+                 dataTextField: "name",
+                 dataValueField: "id",
+                 dataSource: config.dataSource, // e.g., oojActivityList
+                 placeholder: config.placeholder || "Select...",
+                 value: options.model[config.fieldName] || [], // Expects array of IDs
+                 valuePrimitive: true, // Work with IDs
+                 autoClose: false,
+                 change: function(e) {
+                     // Model expects array of IDs
+                     options.model.set(config.fieldName, this.value());
+                 }
+             }).data("kendoMultiSelect");
+     }
+
+      function createPointOfContactsEditor(container, options) {
+         // *** This editor needs access to the list of contacts for the CURRENTLY selected jurisdiction ***
+         // It cannot reliably use a single global list anymore.
+         // Option 1: Pass the correct contact list dynamically (complex).
+         // Option 2: Fetch contacts within the editor (inefficient).
+         // Option 3 (Chosen): Use a placeholder and log a warning. Requires separate user management.
+
+         logger.warn("PointOfContactsEditor: Cannot dynamically determine correct contacts for the dropdown in this context. Displaying placeholder.");
+
+         $('<input name="' + options.field + '" disabled />') // Disable for now
+             .appendTo(container)
+             .kendoMultiSelect({
+                 placeholder: "Select Contacts (Requires User Mgmt)",
+                 dataSource: [], // Initially empty
+                 value: options.model.pointOfContacts || [],
+                 valuePrimitive: true
+             });
+
+         // To make this work properly, the contactsData source for the MultiSelect
+         // would need to be updated whenever the grid's data source reads,
+         // ensuring it only shows contacts for the jurisdiction being edited.
+         // This is non-trivial with the current setup.
+     }
+
     // GRID INITIALIZATION
-    // Use the correct global variable for Contacts.html context
-    oojJurisdictionGrid = $("#oojJurisdictionGrid").kendoGrid({ // Target the correct grid ID
+    oojJurisdictionGrid = $("#oojJurisdictionGrid").kendoGrid({
         dataSource: oojDataSource,
-        autoBind: false, // Prevent automatic reading on init
-       
-        scrollable: false,
+        autoBind: false, // Load data only when .read() is called
+        scrollable: true,  // Enable scrolling
+        height: 500,       // Set a fixed height (adjust px value as needed for ~10 rows)
         sortable: true,
         pageable: false,
-        toolbar: ["excel",],
-columns: [ // Columns match the desired editable grid structure
-            {
-                field: "oojInfections", title: "OOJ Infections", width: 180,
-                template: createTaxonomyTemplate("oojInfections"), editor: createOojInfectionEditor
-            },
-            {
-                field: "oojActivities", title: "OOJ Activities", width: 180,
-                template: createTaxonomyTemplate("oojActivities"), editor: createOojActivitiesEditor
-            },
-            { field: "lastDateOfExposure", title: "Last Date of Exposure", width: 180 },
-            { field: "dispositionsReturned", title: "Dispositions Returned", width: 150 },
-            { field: "acceptAndInvestigate", title: "Accept & Investigate", width: 150 },
-            {
-                field: "methodsOfTransmitting", title: "Methods of Transmitting", width: 180,
-                template: createTaxonomyTemplate("methodsOfTransmitting"), editor: createMethodsOfTransmittingEditor
-            },
-            {
-                field: "acceptableForPiis", title: "Acceptable for PIIs", width: 180,
-                template: createTaxonomyTemplate("acceptableForPiis"), editor: createAcceptableForPiisEditor
-            },
-            {
-                field: "pointOfContacts", title: "Point of Contacts", width: 180,
-                template: createPointOfContactsTemplate(), editor: createPointOfContactsEditor
-            },
-            { field: "notes", title: "Notes", width: 180 },
-           
+        toolbar: ["excel", "search"],
+        search: { fields: [ /* Add relevant fields */ "jurisdictionName", "notes", "oojEmail" ] },
+        columns: [
+             { field: "jurisdictionName", title: "Jurisdiction Name", width: 140 },
+             { field: "oojInfections", title: "Infection", width: 140, template: createTaxonomyTemplate("oojInfections", false), editor: (c, o) => createSingleSelectEditor(c, o, {fieldName: "oojInfections", dataSource: oojInfectionList, placeholder: "Select..."}) },
+             { field: "oojActivities", title: "Activity", width: 140, template: createTaxonomyTemplate("oojActivities"), editor: (c, o) => createMultiSelectEditor(c, o, {fieldName: "oojActivities", dataSource: oojActivityList, placeholder: "Select..."}) },
+             { field: "lastDateOfExposure", title: "Last Date of Exposure", width: 140 /*, headerTemplate/Attributes if tooltip needed */ },
+             { field: "dispositionsReturned", title: "Dispo/Info Returned", width: 140 /*, headerTemplate/Attributes if tooltip needed */ },
+             { field: "methodsOfTransmitting", title: "Method(s) of Transmitting", width: 140, template: createTaxonomyTemplate("methodsOfTransmitting"), editor: (c, o) => createMultiSelectEditor(c, o, {fieldName: "methodsOfTransmitting", dataSource: methodsOfTransmissionList, placeholder: "Select..."}) },
+             { field: "acceptableForPiis", title: "Acceptable for PIIs", width: 140, template: createTaxonomyTemplate("acceptableForPiis"), editor: (c, o) => createMultiSelectEditor(c, o, {fieldName: "acceptableForPiis", dataSource: acceptablePiisData, placeholder: "Select..."}) },
+             { field: "oojPhone", title: "Phone", width: 140, template: formatPhoneTemplate },
+             { field: "oojFax", title: "Fax", width: 140, template: formatPhoneTemplate },
+             { field: "oojEmail", title: "Email", width: 140 },
+             { field: "pointOfContacts", title: "Point of Contact", width: 140, template: createPointOfContactsTemplate(), editor: createPointOfContactsEditor },
+             { field: "notes", title: "Notes", width: 140 }
+            // { command: ["edit", "destroy"], title: "&nbsp;", width: "180px" } // Add commands if needed
         ],
-        // Add excelExport function if needed, similar to the one removed or from My_Jurisdiction
         excelExport: function (e) {
-       console.log("Custom Excel export triggered for OOJ Grid.");
-       var exportData = []; // Holds formatted data for each logical row
-       var allRowsForSheet = []; // Holds the complete Kendo row objects for the sheet config
-       var gridData = e.sender.dataSource.data();
-       console.log("Total items in grid data source for export:", gridData.length);
+            // Simplified Excel Export - Needs adjustment based on final data structure
+            logger.info("Excel export triggered for OOJ Grid.");
+            var workbook = new kendo.ooxml.Workbook({
+                sheets: [{
+                    columns: [ // Define columns for export
+                        { autoWidth: true }, { autoWidth: true }, { autoWidth: true },
+                        { autoWidth: true }, { autoWidth: true }, { autoWidth: true },
+                        { autoWidth: true }, { autoWidth: true }, { autoWidth: true },
+                        { autoWidth: true }, { autoWidth: true }, { autoWidth: true }
+                    ],
+                    title: "OOJ Details",
+                    rows: [] // Placeholder - Rows need to be built manually
+                }]
+            });
 
-       // --- 1. Define Headers ---
-       var headers = ["OOJ Infections", "OOJ Activities", "Last Date of Exposure", "Dispositions Returned", "Accept & Investigate", "Methods of Transmitting", "Acceptable for PIIs", "Point of Contacts", "Notes"];
-       var headerRowObject = {
-           cells: headers.map(header => ({
-               value: header,
-               background: "#7a7a7a",
-               color: "#ffffff",
-               bold: true
-           }))
-       };
-       allRowsForSheet.push(headerRowObject); // Add header row object to our sheet data array
+            // Build header row
+             var headers = [
+                 "Jurisdiction Name", "OOJ Infections", "OOJ Activities",
+                 "Last Date of Exposure", "Dispositions Returned",
+                 "Methods of Transmitting", "Acceptable for PIIs",
+                 "Phone", "Fax", "Email",
+                 "Point of Contacts", "Notes"
+             ];
+            var headerRow = { cells: headers.map(h => ({ value: h, background: "#7a7a7a", color: "#ffffff", bold: true })) };
+            workbook.sheets[0].rows.push(headerRow);
 
-       // --- 2. Process Grid Data into Kendo Row Objects ---
-       if (gridData.length > 0) {
-           for (var i = 0; i < gridData.length; i++) {
-               var dataItem = gridData[i];
-               var formattedRowData = {}; // Temporary object to hold formatted strings
-               console.log(`--- Processing dataItem index ${i} for Excel (ID: ${dataItem.id}) ---`);
+             // Manually build data rows using templates/lookup functions
+             var gridData = e.sender.dataSource.view(); // Use view() to get current page/filtered data
+             var infectionTemplateFn = createTaxonomyTemplate("oojInfections", false);
+             var activityTemplateFn = createTaxonomyTemplate("oojActivities");
+             var methodsTemplateFn = createTaxonomyTemplate("methodsOfTransmitting");
+             var piiTemplateFn = createTaxonomyTemplate("acceptableForPiis");
+             var pocTemplateFn = createPointOfContactsTemplate(); // Uses placeholder currently
 
-               // Format data using helper functions (keep using the fixed versions)
-               formattedRowData["OOJ Infections"] = formatExcelTaxonomy(dataItem.oojInfections);
-               formattedRowData["OOJ Activities"] = formatExcelTaxonomy(dataItem.oojActivities);
-               formattedRowData["Last Date of Exposure"] = dataItem.lastDateOfExposure || "";
-               formattedRowData["Dispositions Returned"] = dataItem.dispositionsReturned || "";
-               formattedRowData["Accept & Investigate"] = dataItem.acceptAndInvestigate || "";
-               formattedRowData["Methods of Transmitting"] = formatExcelTaxonomy(dataItem.methodsOfTransmitting);
-               formattedRowData["Acceptable for PIIs"] = formatExcelTaxonomy(dataItem.acceptableForPiis);
-               formattedRowData["Point of Contacts"] = formatExcelContacts(dataItem.pointOfContacts);
-               formattedRowData["Notes"] = dataItem.notes || "";
+             gridData.forEach(dataItem => {
+                 var dataRow = {
+                     cells: [
+                         { value: dataItem.jurisdictionName || "" },
+                         { value: infectionTemplateFn(dataItem) },
+                         { value: activityTemplateFn(dataItem) },
+                         { value: dataItem.lastDateOfExposure || "" },
+                         { value: dataItem.dispositionsReturned || "" },
+                         { value: methodsTemplateFn(dataItem) },
+                         { value: piiTemplateFn(dataItem) },
+                         { value: formatPhoneTemplate(dataItem, "oojPhone") }, // Use template helper
+                         { value: formatPhoneTemplate(dataItem, "oojFax") }, // Use template helper
+                         { value: dataItem.oojEmail || "" },
+                         { value: pocTemplateFn(dataItem) }, // Uses placeholder currently
+                         { value: dataItem.notes || "" }
+                     ]
+                 };
+                 workbook.sheets[0].rows.push(dataRow);
+             });
 
-               // Create the Kendo row object structure for this data item
-               var dataRowObject = { cells: [] };
-               headers.forEach(header => {
-                   dataRowObject.cells.push({
-                       value: formattedRowData[header] !== undefined ? formattedRowData[header] : ""
-                   });
-               });
-               allRowsForSheet.push(dataRowObject); // Add data row object to our sheet data array
-           }
-       } else {
-           console.warn("No data in the grid to export.");
-           // Optionally add a message row if needed when empty
-           // allRowsForSheet.push({ cells: [{ value: "No data available." }] });
+
+            kendo.saveAs({
+                dataURI: workbook.toDataURL(),
+                fileName: "OOJ_Details_Export.xlsx"
+            });
+            e.preventDefault(); // Prevent default export
        }
-       console.log("Finished preparing all rows for sheet configuration.");
+    }).data("kendoGrid");
 
-       // --- 3. Create Workbook with Complete Sheet Structure ---
-       try {
-           console.log("Attempting to create workbook with prepared rows...");
-           var workbook = new kendo.ooxml.Workbook({
-               sheets: [{
-                   columns: headers.map(() => ({ autoWidth: true })), // Create autoWidth columns for each header
-                   title: "OOJ Details",
-                   rows: allRowsForSheet // Pass the complete array of row objects
-               }]
-           });
-           console.log("Workbook object created successfully:", workbook);
+    logger.info('OOJ Grid Initialized (REST).');
+} // End initializeOojGrid
 
-           // --- 4. Save Workbook ---
-           console.log("Attempting to save workbook...");
-           kendo.saveAs({
-               dataURI: workbook.toDataURL(), // Generate data URI from the complete workbook
-               fileName: "OOJ_Details_Export.xlsx"
-           });
-           console.log("Workbook saved successfully.");
 
-       } catch (error) {
-           console.error("Error during workbook creation or saving:", error);
-           alert("An error occurred while creating or saving the Excel file.");
-       }
-       // --- End Workbook Creation and Saving ---
-
-       // Prevent the default Kendo export process
-       e.preventDefault();
-   } // End excelExport function
-  }).data("kendoGrid");
-
-     console.log('OOJ Grid Initialized (REST). Type:', typeof oojJurisdictionGrid, 'Value:', oojJurisdictionGrid);
-
-} // End initializeOojGrid 
-
+// Initialize the Contact grid - Uses REST API DataSource
 function initializeContactGrid() {
-    // Ensure global hivRoleList and stiRoleList are populated before this runs
-    // Ensure formatRoles helper function is defined and accessible
+    // Role templates need global lists (hivRoleList, stiRoleList) populated
+    function formatRolesTemplate(fieldName) {
+        return function(dataItem) {
+            const roleIds = dataItem.acf?.[fieldName];
+            const roleList = fieldName === 'hiv_role' ? hivRoleList : stiRoleList;
+            if (!roleIds || roleIds.length === 0) return "—";
+            return roleIds.map(id => {
+                const role = roleList.find(r => r.id === id);
+                return role ? role.name : `ID ${id}`;
+            }).join(", ");
+        };
+    }
+
+    // --- Contact Grid DataSource ---
+    var contactDataSource = new kendo.data.DataSource({
+         transport: {
+             read: {
+                 url: function() {
+                     const baseUrl = stdBaseUrl + "/users";
+                      // Request fields needed for the grid display and potential editing
+                     const fields = "_fields=id,first_name,last_name,email,acf";
+                     const context = "context=edit"; // Needed to retrieve ACF fields
+                     const perPage = "per_page=3000"; // Use max limit
+
+                     if (selectedJurisdictionId && selectedJurisdictionId !== "ALL") {
+                         const jurisdictionId = parseInt(selectedJurisdictionId, 10);
+                         if (!isNaN(jurisdictionId)) {
+                              // Filter by ACF field: acf_{field_name}={value}
+                             const filter = `acf_user_jurisdiction=${jurisdictionId}`;
+                             const specificUrl = `${baseUrl}?${fields}&${context}&${filter}&${perPage}`;
+                             logger.info(`Contact Grid: Reading specific jurisdiction ID: ${jurisdictionId} via URL: ${specificUrl}`);
+                             return specificUrl;
+                         } else {
+                             logger.warn(`Contact Grid: Invalid jurisdiction ID ${selectedJurisdictionId}. Reading ALL.`);
+                             const allUrl = `${baseUrl}?${fields}&${context}&${perPage}`;
+                             return allUrl;
+                         }
+                     } else if (selectedJurisdictionId === "ALL") {
+                         const allUrl = `${baseUrl}?${fields}&${context}&${perPage}`;
+                         logger.info(`Contact Grid: Reading ALL users via URL: ${allUrl}`);
+                         return allUrl;
+                     } else {
+                         logger.warn("Contact Grid: No jurisdiction selected. Returning null.");
+                         return null; // Don't load if no selection
+                     }
+                 },
+                 dataType: "json",
+                 beforeSend: addNonceToAjax
+             }
+             // NOTE: Create, Update, Destroy transport operations are NOT included here.
+             // They would be similar to the User Grid in My Jurisdiction v2 if needed.
+         },
+         schema: {
+             model: {
+                 id: "id", // WP User ID is the model ID
+                 fields: {
+                     id: { editable: false, nullable: true },
+                     first_name: { type: "string", validation: { required: true } },
+                     last_name: { type: "string", validation: { required: true } },
+                     email: { type: "string" }, // Email usually not editable here, depends on requirements
+                     // ACF fields nested
+                     acf: {
+                         type: "object",
+                         defaultValue: { user_jurisdiction: null, hiv_role: [], sti_role: [], user_phone: "", user_fax: "", notes_sti_hiv: "" },
+                         parse: function(acfData) { // Ensure defaults if ACF is missing/incomplete
+                             acfData = acfData || {};
+                             return {
+                                user_jurisdiction: acfData.user_jurisdiction ? parseInt(acfData.user_jurisdiction, 10) : null,
+                                hiv_role: Array.isArray(acfData.hiv_role) ? acfData.hiv_role.map(id=>parseInt(id,10)) : [],
+                                sti_role: Array.isArray(acfData.sti_role) ? acfData.sti_role.map(id=>parseInt(id,10)) : [],
+                                user_phone: acfData.user_phone || "",
+                                user_fax: acfData.user_fax || "",
+                                notes_sti_hiv: acfData.notes_sti_hiv || ""
+                             };
+                         }
+                     }
+                 }
+             },
+             parse: function(response) {
+                 logger.info("Contact Grid Parse: Received response:", response);
+                 if (!Array.isArray(response)) {
+                     logger.warn("Contact Grid Parse: Expected an array, received:", response);
+                     return [];
+                 }
+                 // Ensure ACF object and its role arrays exist with correct types
+                 return response.map(user => {
+                     user.acf = user.acf || {};
+                     user.acf.user_jurisdiction = user.acf.user_jurisdiction ? parseInt(user.acf.user_jurisdiction, 10) : null;
+                     user.acf.hiv_role = Array.isArray(user.acf.hiv_role) ? user.acf.hiv_role.map(id=>parseInt(id,10)) : [];
+                     user.acf.sti_role = Array.isArray(user.acf.sti_role) ? user.acf.sti_role.map(id=>parseInt(id,10)) : [];
+                     user.acf.user_phone = user.acf.user_phone || "";
+                     user.acf.user_fax = user.acf.user_fax || "";
+                     user.acf.notes_sti_hiv = user.acf.notes_sti_hiv || "";
+                     return user;
+                 });
+             },
+             error: function(e) {
+                 logger.error("Contact Grid DataSource Error:", e);
+                 let message = "Error loading contacts.";
+                  if (e.xhr && e.xhr.responseJSON && e.xhr.responseJSON.message) {
+                      message = e.xhr.responseJSON.message;
+                  } else if (e.errors) { message = Array.isArray(e.errors) ? e.errors.join(", ") : String(e.errors); }
+                  alert(message);
+                  var grid = $("#contactGrid").data("kendoGrid");
+                  if (grid) { grid.cancelChanges(); }
+             }
+         },
+         sort: { field: "last_name", dir: "asc" } // Default sort
+    });
+    // --- End Contact Grid DataSource ---
 
     contactGrid = $("#contactGrid").kendoGrid({
-      dataSource: {
-        data: [], // Populated by updateContactGrid
-        schema: {
-          model: {
-            id: "id", // Assuming 'id' (the user's databaseId) is the unique ID here
-            fields: {
-              // Define fields based on the structure from updateContactGrid/fetchAllUsers
-              id: { editable: false, nullable: true }, // WP GraphQL relay ID might be needed if mutations use it
-              databaseId: { editable: false, nullable: true }, // Keep databaseId if available/needed
-              first_name: { type: "string", validation: { required: true } },
-              last_name: { type: "string", validation: { required: true } },
-              email: { type: "string" },
-              acf: { type: "object", defaultValue: { hiv_role: [], sti_role: [] } } // Define the 'acf' object and default roles
-            },
-          },
-        },
-        // NOTE: Transport for Create, Update, Destroy is NOT defined here.
-        // Adding these would require implementing GraphQL mutations similar to My_Jurisdiction.html
-      },
-      toolbar: ["excel"], // Match My_Jurisdiction toolbar
-    
-     
+      dataSource: contactDataSource, // Use the new REST DataSource
+      autoBind: false, // Do not bind on initialization, wait for dropdown change
+      toolbar: ["excel", "search"],
+      search: { fields: ["first_name", "last_name", "email", "acf.user_phone", "acf.user_fax", "acf.notes_sti_hiv"] },
       sortable: true,
-      pageable: false,
-      scrollable: false,
-      excel: { // Keep excel export config
+      pageable: false, // Keep pageable false unless you specifically want Kendo paging
+      scrollable: true,  // Enable scrolling
+      height: 500,       // Set a fixed height (adjust px value as needed for ~10 rows)
+      excel: {
         fileName: "STD_Contact_Board_Export.xlsx",
-        filterable: true,
-        allPages: true,
+        allPages: true // Export all data loaded by the DataSource
       },
       columns: [
         {
-          field: "acf.user_jurisdiction", // Keeping this field for display/context if needed
+          field: "acf.user_jurisdiction",
           title: "Jurisdiction",
-          template: function (dataItem) {
-            // Assuming getJurisdictionName expects the ID
-            return getJurisdictionName(dataItem.acf?.user_jurisdiction);
-          },
-           // Make non-editable if this grid shouldn't change user jurisdiction
-           editable: () => false,
-           // Hide if not relevant in this context:
-           // hidden: true,
+          width: 140,
+          template: function (dataItem) { return getJurisdictionName(dataItem.acf?.user_jurisdiction); },
+          exportable: true,
+          encoded: false
         },
-        { field: "first_name", title: "First Name", width: 120 },
-        { field: "last_name", title: "Last Name", width: 120 },
-        { field: "email", title: "Email", width: 180 },
-        // Match My_Jurisdiction columns for contact info (access via acf object)
-        // Note: My_Jurisdiction has 'confidentialPhone', adding it here for parity
-        { field: "acf.phone_user", title: "Phone", width: 120 },
-        { field: "acf.fax_user", title: "Fax", width: 120 },
-        { field: "acf.notes_sti_hiv", title: "Notes", width: 180 },
-        {
-          // field: "acf.hiv_role", // Field binding less critical with template/editor functions
-          title: "HIV Roles",
-          width: 180,
-          template: function(dataItem) {
-              // Correctly access nested ID array and format using global list
-              return formatRoles(dataItem.acf?.hiv_role, hivRoleList);
-          },
-          editor: function(container, options) {
-              // Editor needs to work with the array of IDs in options.model.acf.hiv_role
-              // and use the global hivRoleList (array of {id, name}) for the dropdown
-              $('<input name="acf.hiv_role" />') // Input name matches the field path
-                  .appendTo(container)
-                  .kendoMultiSelect({
-                      placeholder: "Select HIV Roles...",
-                      dataTextField: "name",
-                      dataValueField: "id", // Use 'id' as value field to match formatRoles expectation
-                      dataSource: hivRoleList, // Global list [{id: 62, name: 'Role A'}, ...]
-                      value: options.model.acf?.hiv_role || [], // Bind to the array of IDs
-                      change: function(e) {
-                          // Update the model's array of IDs when selection changes
-                          options.model.set("acf.hiv_role", e.sender.value());
-                          options.model.dirty = true; // Mark model as dirty
-                      }
-                  });
-          }
-        },
-        {
-          // field: "acf.sti_role",
-          title: "STI Roles",
-          width: 180,
-          template: function(dataItem) {
-              return formatRoles(dataItem.acf?.sti_role, stiRoleList);
-          },
-          editor: function(container, options) {
-              // Similar editor logic for STI roles
-              $('<input name="acf.sti_role" />')
-                  .appendTo(container)
-                  .kendoMultiSelect({
-                      placeholder: "Select STI Roles...",
-                      dataTextField: "name",
-                      dataValueField: "id",
-                      dataSource: stiRoleList,
-                      value: options.model.acf?.sti_role || [],
-                      change: function(e) {
-                          options.model.set("acf.sti_role", e.sender.value());
-                          options.model.dirty = true;
-                      }
-                  });
-          }
-        },
-        // Add command column to match My_Jurisdiction
-       
+        { field: "first_name", title: "First Name", width: 140 },
+        { field: "last_name", title: "Last Name", width: 140 },
+        { field: "email", title: "Email", width: 140 },
+        { field: "acf.user_phone", title: "Phone", width: 140, template: formatPhoneTemplate },
+        { field: "acf.user_fax", title: "Fax", width: 140, template: formatPhoneTemplate },
+        { field: "acf.hiv_role", title: "HIV Roles", width: 140, template: formatRolesTemplate('hiv_role'), exportable: { text: true } },
+        { field: "acf.sti_role", title: "STI Roles", width: 140, template: formatRolesTemplate('sti_role'), exportable: { text: true } },
+        { field: "acf.notes_sti_hiv", title: "Notes", width: 140 },
       ],
-      // Reconfigure Excel export to handle potential structure differences
       excelExport: function (e) {
-          var sheet = e.workbook.sheets[0];
-          var headerCells = sheet.rows[0].cells;
-          // Find column indices dynamically (more robust)
-          let colIndices = {};
-          headerCells.forEach((cell, index) => {
-              // Match column titles used in the grid definition
-              if (cell.value === "Jurisdiction") colIndices.jurisdiction = index;
-              if (cell.value === "HIV Role") colIndices.hivRole = index;
-              if (cell.value === "STI Role") colIndices.stiRole = index;
-              if (cell.value === "First Name") colIndices.firstName = index;
-              if (cell.value === "Last Name") colIndices.lastName = index;
-              if (cell.value === "Email") colIndices.email = index;
-              if (cell.value === "Phone") colIndices.phone = index;
-              if (cell.value === "Fax") colIndices.fax = index;
-              if (cell.value === "Notes") colIndices.notes = index;
-          });
+          // Use a similar manual export building process as OOJ grid if complex formatting/lookups needed
+          // Or rely on Kendo's default export if column templates aren't too complex
+           var sheet = e.workbook.sheets[0];
+           // Example: Manually set Jurisdiction name for export if needed
+           for (var rowIndex = 1; rowIndex < sheet.rows.length; rowIndex++) {
+               var row = sheet.rows[rowIndex];
+               var dataItem = e.sender.dataSource.view()[rowIndex - 1]; // Get corresponding data item
+               var jurisdictionCellIndex = e.sender.columns.findIndex(col => col.field === "acf.user_jurisdiction");
+               var hivRoleCellIndex = e.sender.columns.findIndex(col => col.field === "acf.hiv_role");
+               var stiRoleCellIndex = e.sender.columns.findIndex(col => col.field === "acf.sti_role");
+               var phoneCellIndex = e.sender.columns.findIndex(col => col.field === "acf.user_phone");
+               var faxCellIndex = e.sender.columns.findIndex(col => col.field === "acf.user_fax");
 
-          for (var rowIndex = 1; rowIndex < sheet.rows.length; rowIndex++) {
-              var row = sheet.rows[rowIndex];
-              var dataItem = contactGrid.dataSource.at(rowIndex - 1); // Get the data item for the row
 
-              // Populate cells using dataItem and helper functions, checking indices
-              if (colIndices.jurisdiction !== undefined) row.cells[colIndices.jurisdiction].value = getJurisdictionName(dataItem.acf?.user_jurisdiction);
-              if (colIndices.hivRole !== undefined) row.cells[colIndices.hivRole].value = formatRoles(dataItem.acf?.hiv_role, hivRoleList);
-              if (colIndices.stiRole !== undefined) row.cells[colIndices.stiRole].value = formatRoles(dataItem.acf?.sti_role, stiRoleList);
-              if (colIndices.firstName !== undefined) row.cells[colIndices.firstName].value = dataItem.first_name;
-              if (colIndices.lastName !== undefined) row.cells[colIndices.lastName].value = dataItem.last_name;
-              if (colIndices.email !== undefined) row.cells[colIndices.email].value = dataItem.email;
-              if (colIndices.phone !== undefined) row.cells[colIndices.phone].value = dataItem.acf?.phone_user || "";
-              if (colIndices.fax !== undefined) row.cells[colIndices.fax].value = dataItem.acf?.fax_user || "";
-              if (colIndices.notes !== undefined) row.cells[colIndices.notes].value = dataItem.acf?.notes_sti_hiv || "";
-          }
+               if (jurisdictionCellIndex > -1) {
+                   row.cells[jurisdictionCellIndex].value = getJurisdictionName(dataItem.acf?.user_jurisdiction);
+               }
+               if (hivRoleCellIndex > -1) {
+                   row.cells[hivRoleCellIndex].value = formatRolesTemplate('hiv_role')(dataItem); // Use template fn
+               }
+               if (stiRoleCellIndex > -1) {
+                    row.cells[stiRoleCellIndex].value = formatRolesTemplate('sti_role')(dataItem); // Use template fn
+               }
+                if (phoneCellIndex > -1) {
+                    row.cells[phoneCellIndex].value = formatPhoneTemplate(dataItem, 'user_phone'); // Use template fn
+                }
+                if (faxCellIndex > -1) {
+                     row.cells[faxCellIndex].value = formatPhoneTemplate(dataItem, 'user_fax'); // Use template fn
+                }
+               // Add other columns as needed
+           }
+           logger.info("Contact Grid Excel export customized.");
       }
     }).data("kendoGrid");
- }// Update jurisdiction grid with selected jurisdiction
- 
- 
- async function updateJurisdictionGrid(selectedJurisdictionId) {
-    logger.info("Updating jurisdiction grid for ID:", selectedJurisdictionId);
+    logger.info("Contact Grid initialized (REST).");
+ }
 
-    let gridData = []; // Default to empty
+ // Update jurisdiction grid with selected jurisdiction info (uses pre-fetched list)
+ function updateJurisdictionGrid(selectedId) {
+    logger.info("Updating jurisdiction info grid for ID:", selectedId);
+    let gridData = [];
 
-    // Check if the selected ID is valid for fetching a single jurisdiction
-    const isValidId = selectedJurisdictionId && selectedJurisdictionId !== "ALL" && !isNaN(parseInt(selectedJurisdictionId, 10));
+    if (selectedId && selectedId !== "ALL") {
+        const numericId = parseInt(selectedId, 10);
+        const jurisdiction = allJurisdictionList.find(j => j.id === numericId);
 
-    if (isValidId) {
-      // Fetch data only if a valid, specific jurisdiction ID is selected
-      try {
-        const result = await makeGraphQLRequest(FETCH_JURISDICTION_QUERY, { id: selectedJurisdictionId });
-        const jurisdiction = result.data.jurisdiction;
-
-        // Check if jurisdiction data was actually returned
         if (jurisdiction) {
-            gridData = [
-              {
-                title: jurisdiction.title,
-                fips_code: jurisdiction.jurisdictionDetails?.fipsCode || "N/A",
-                agency_name: jurisdiction.jurisdictionDetails?.agencyName || "N/A",
-                address_jurisdiction: jurisdiction.jurisdictionDetails?.addressJurisdiction || "N/A",
-                phone_jurisdiction: jurisdiction.jurisdictionDetails?.phoneJurisdiction || "N/A",
-                modified: jurisdiction.modified || "0000-00-00T00:00:00",
-              },
-            ];
+            gridData = [{
+                id: jurisdiction.id, // Include id
+                title: jurisdiction.title?.rendered || "N/A",
+                fips_code: jurisdiction.acf?.fips_code || "N/A",
+                agency_name: jurisdiction.acf?.agency_name || "N/A",
+                address_jurisdiction: jurisdiction.acf?.address_jurisdiction || "N/A",
+                phone_jurisdiction: jurisdiction.acf?.phone_jurisdiction || "N/A",
+                modified: jurisdiction.modified || null,
+            }];
         } else {
-             logger.warn(`Jurisdiction data not found for ID: ${selectedJurisdictionId}`);
-             // Keep gridData empty or set a "Not Found" message
-             gridData = [{ title: "Jurisdiction Not Found", fips_code: "N/A", agency_name: "N/A", address_jurisdiction: "N/A", phone_jurisdiction: "N/A", modified: "0000-00-00T00:00:00" }];
+            logger.warn(`Jurisdiction data not found in global list for ID: ${selectedId}`);
+            gridData = [{ title: "Jurisdiction Not Found", fips_code: "N/A", agency_name: "N/A", address_jurisdiction: "N/A", phone_jurisdiction: "N/A", modified: null }];
         }
-      } catch (error) {
-        logger.error("Error fetching jurisdiction:", error);
-        // Display error state in the grid
-        gridData = [
-          {
-            title: "Error Loading Data",
-            fips_code: "N/A",
-            agency_name: "N/A",
-            address_jurisdiction: "N/A",
-            phone_jurisdiction: "N/A",
-            modified: "0000-00-00T00:00:00",
-          },
-        ];
-      }
-    } else if (selectedJurisdictionId === "ALL") {
-         // Handle "ALL" selection - show N/A as before
-         gridData = [
-             {
-                 title: "N/A (ALL selected)",
-                 fips_code: "N/A",
-                 agency_name: "N/A",
-                 address_jurisdiction: "N/A",
-                 phone_jurisdiction: "N/A",
-                 modified: "0000-00-00T00:00:00",
-             },
-         ];
     } else {
-         // Handle cleared/invalid selection - show default empty/placeholder state
-         logger.info("Jurisdiction grid cleared due to invalid/empty selection.");
-         gridData = [
-             {
-                 title: "N/A (No specific jurisdiction selected)",
-                 fips_code: "N/A",
-                 agency_name: "N/A",
-                 address_jurisdiction: "N/A",
-                 phone_jurisdiction: "N/A",
-                 modified: "0000-00-00T00:00:00",
-             },
-         ];
-         // Or simply: gridData = []; if you prefer an empty grid
+         // Handle "ALL" or cleared selection - show default N/A state
+         const message = selectedId === "ALL" ? "N/A (ALL selected)" : "N/A (No specific jurisdiction selected)";
+         gridData = [{ title: message, fips_code: "N/A", agency_name: "N/A", address_jurisdiction: "N/A", phone_jurisdiction: "N/A", modified: null }];
     }
 
-    // Ensure the grid and its dataSource are available before setting data
     if (jurisdictionGrid && jurisdictionGrid.dataSource) {
         jurisdictionGrid.dataSource.data(gridData);
     } else {
-        logger.error("Jurisdiction Grid or its dataSource is not initialized when trying to update.");
+        logger.error("Jurisdiction Info Grid or its dataSource is not initialized.");
     }
   }
 
-  // Update OOJ grid with selected jurisdiction
-// Update OOJ grid with selected jurisdiction using GraphQL
-// Update OOJ grid with selected jurisdiction using GraphQL
-async function updateOojGrid(selectedJurisdictionId) {
-    // ADD THIS LINE AS THE VERY FIRST LINE:
-    console.log('>>> Entering updateOojGrid. Typeof oojJurisdictionGrid:', typeof oojJurisdictionGrid, 'Value:', oojJurisdictionGrid);
-
-
-    logger.info("Updating OOJ grid (GraphQL read) for ID:", selectedJurisdictionId);
-
-    if (!oojJurisdictionGrid || !oojJurisdictionGrid.dataSource) {
-        logger.error("OOJ Grid or its dataSource is not initialized");
-        return;
+// Helper function for formatting phone numbers in templates
+function formatPhoneTemplate(dataItem, fieldName = null) {
+    let rawValue = null;
+    // If fieldName is provided (for direct use), get value from potentially nested ACF
+    if (fieldName) {
+       rawValue = dataItem.acf ? dataItem.acf[fieldName] : dataItem[fieldName];
+    } else {
+        // If no fieldName, assume dataItem *is* the phone number (less common)
+        rawValue = dataItem;
     }
 
-    let finalGridData = []; // Array to hold the mapped data for the grid
-
-    oojJurisdictionGrid.dataSource.data([]); // Clear existing data
-    oojJurisdictionGrid.showLoading(); // Show loading indicator
-
-    try {
-        if (selectedJurisdictionId === "ALL") {
-            // Fetch details for all jurisdictions sequentially (can be slow for many jurisdictions)
-            // Consider adding pagination or optimizing if performance is an issue
-            for (const jurisdiction of allJurisdictionList) {
-                logger.info(`Workspaceing OOJ details for Jurisdiction: ${jurisdiction.title?.rendered || jurisdiction.id}`);
-                const result = await makeGraphQLRequest(READ_OOJ_DETAILS_QUERY, {
-                    jurisdictionId: parseInt(jurisdiction.id, 10)
-                });
-
-                if (result.data && result.data.oOJDetails && result.data.oOJDetails.nodes) {
-                    const mappedData = result.data.oOJDetails.nodes.map(node => mapOojNodeToGridModel(node, jurisdiction.title?.rendered));
-                    finalGridData = finalGridData.concat(mappedData);
-                }
-            }
-        } else {
-            // Fetch details for the single selected jurisdiction
-            const jurisdictionId = parseInt(selectedJurisdictionId, 10);
-            const currentJurisdiction = allJurisdictionList.find(
-                jurisdiction => jurisdiction.id === jurisdictionId
-            );
-            const jurisdictionName = currentJurisdiction?.title?.rendered || `ID: ${jurisdictionId}`;
-
-            logger.info(`Workspaceing OOJ details for Jurisdiction: ${jurisdictionName}`);
-            const result = await makeGraphQLRequest(READ_OOJ_DETAILS_QUERY, {
-                jurisdictionId: jurisdictionId
-            });
-
-            if (result.data && result.data.oOJDetails && result.data.oOJDetails.nodes) {
-                finalGridData = result.data.oOJDetails.nodes.map(node => mapOojNodeToGridModel(node, jurisdictionName));
-            } else {
-                 logger.warn(`No OOJ details found for Jurisdiction ID: ${jurisdictionId}`);
-            }
+    if (typeof rawValue === 'string' || typeof rawValue === 'number') {
+        const digits = String(rawValue).replace(/\D/g, '');
+        if (digits.length === 10) {
+            return `(${digits.substring(0, 3)}) ${digits.substring(3, 6)}-${digits.substring(6, 10)}`;
+        } else if (digits.length > 0) {
+             return digits; // Return cleaned digits if not 10 digits
         }
-    } catch (error) {
-        logger.error(`Error loading OOJ data for jurisdiction ID ${selectedJurisdictionId}:`, error);
-        // Optionally show an error message to the user
-        showNotification("Error loading OOJ details.", "error"); // Assumes showNotification exists
-    } finally {
-        oojJurisdictionGrid.hideLoading(); // Hide loading indicator
-        logger.info(`Setting ${finalGridData.length} items into OOJ Grid DataSource.`);
-        oojJurisdictionGrid.dataSource.data(finalGridData); // Populate grid
     }
+    // Return empty string if invalid or empty
+    return ""; // Changed from "—"
 }
 
-  
-  // Generic template factory functions
-  function createTaxonomyTemplate(fieldName) {
-      return function(dataItem) {
-          return dataItem[fieldName] && dataItem[fieldName].length ? 
-              dataItem[fieldName].map(item => item.name).join(', ') : '—';
-      };
-  }
-  
-  function createPointOfContactsTemplate() {
-      return function(dataItem) {
-          return dataItem.pointOfContacts && dataItem.pointOfContacts.length ? 
-              dataItem.pointOfContacts.map(c => `${c.firstName} ${c.lastName}`).join(', ') : '—';
-      };
-  }
-  
-  // Generic editor factory functions for taxonomy fields
-  function createSingleSelectEditor(container, options, config) {
-      $(`<input name="${config.fieldName}" />`)
-          .appendTo(container)
-          .kendoDropDownList({
-              placeholder: config.placeholder || "Select...",
-              dataTextField: "name",
-              dataValueField: "databaseId",
-              dataSource: config.dataSource,
-              value: (options.model[config.fieldName] || []).length > 0 ? 
-                  (typeof options.model[config.fieldName][0] === 'object' ? 
-                      options.model[config.fieldName][0].databaseId : 
-                      options.model[config.fieldName][0]) : "",
-              change: function(e) {
-                  const selectedValue = e.sender.value();
-                  options.model[config.fieldName] = [];
-                  
-                  if (selectedValue) {
-                      const itemObj = config.dataSource.find(i => 
-                          String(i.databaseId) === String(selectedValue));
-                      
-                      if (itemObj) {
-                          options.model[config.fieldName].push({ 
-                              id: itemObj.id,
-                              databaseId: itemObj.databaseId,
-                              name: itemObj.name
-                          });
-                      }
-                  }
-                  
-                  // Call custom onChange handler if provided
-                  if (config.onChange) {
-                      config.onChange(e, options);
-                  }
-              }
-          });
-  }
-  
-  function createMultiSelectEditor(container, options, config) {
-      const multiSelect = $(`<input name="${config.fieldName}" />`)
-          .appendTo(container)
-          .kendoMultiSelect({
-              placeholder: config.placeholder || "Select...",
-              dataTextField: "name",
-              dataValueField: "databaseId",
-              dataSource: config.dataSource,
-              value: (options.model[config.fieldName] || []).map(item => 
-                  typeof item === 'object' ? item.databaseId : item),
-              itemTemplate: config.itemTemplate || null,
-              change: function(e) {
-                  const selectedValues = e.sender.value();
-                  options.model[config.fieldName] = [];
-                  selectedValues.forEach(value => {
-                      const itemObj = config.dataSource.find(i => 
-                          String(i.databaseId) === String(value));
-                      
-                      if (itemObj) {
-                          const newItem = { 
-                              id: itemObj.id,
-                              databaseId: itemObj.databaseId,
-                              name: itemObj.name
-                          };
-                          
-                          // Copy additional properties if they exist
-                          if (itemObj.firstName) newItem.firstName = itemObj.firstName;
-                          if (itemObj.lastName) newItem.lastName = itemObj.lastName;
-                          
-                          options.model[config.fieldName].push(newItem);
-                      }
-                  });
-                  
-                  // Call custom onChange handler if provided
-                  if (config.onChange) {
-                      config.onChange(e, options);
-                  }
-              }
-          });
-          
-      return multiSelect;
-  }
-  
-  // Specific editor functions for each taxonomy
-  function createOojInfectionEditor(container, options) {
-      return createSingleSelectEditor(container, options, {
-          fieldName: "oojInfections",
-          dataSource: oojInfectionsData,
-          placeholder: "Select Infection..."
-      });
-  }
-  
-  function createOojActivitiesEditor(container, options) {
-      return createMultiSelectEditor(container, options, {
-          fieldName: "oojActivities",
-          dataSource: oojActivitiesData,
-          placeholder: "Select Activities..."
-      });
-  }
-  
-  function createMethodsOfTransmittingEditor(container, options) {
-      return createMultiSelectEditor(container, options, {
-          fieldName: "methodsOfTransmitting",
-          dataSource: methodsTransmittingData,
-          placeholder: "Select Methods..."
-      });
-  }
-  
-  function createAcceptableForPiisEditor(container, options) {
-      return createMultiSelectEditor(container, options, {
-          fieldName: "acceptableForPiis",
-          dataSource: acceptablePiisData,
-          placeholder: "Select PIIs..."
-      });
-  }
-  
-  function createPointOfContactsEditor(container, options) {
 
-
-     // Call createMultiSelectEditor, providing specific config for contacts
-     return createMultiSelectEditor(container, options, {
-         fieldName: "pointOfContacts",
-         dataSource: contactsData, // Your global array of user objects
-         placeholder: "Select Contacts...",
-
-         // --- CORRECTIONS START ---
-
-         // 1. Set dataTextField to an EXISTING field (even if not the final display)
-         //    We'll use templates for the actual display. 'firstName' is a safe choice.
-         //dataTextField: "firstName",
-
-         // 2. Keep the itemTemplate for rendering items in the dropdown list
-         itemTemplate: '#= firstName # #= lastName #',
-
-         // 3. ADD tagTemplate to control how selected items appear in the input
-         //tagTemplate: '#= firstName # #= lastName #'
-
-         // --- CORRECTIONS END ---
-     });
- }
-
-/**
- * Helper function to map a GraphQL OOJDetail node to the Kendo Grid model structure.
- * (Matches the model defined in the updated initializeOojGrid function)
- * @param {object} node - The GraphQL node for an OOJDetail.
- * @param {string} jurisdictionName - The name of the associated jurisdiction.
- * @returns {object} - The data object formatted for the Kendo Grid model.
- */
-function mapOojNodeToGridModel(node, jurisdictionName) {
-    const fields = node.oojDetailsFields || {}; // Handle potentially null fields object
-    const mapTaxonomy = (taxonomyNodes) => (taxonomyNodes || []).map(n => ({ id: n.id, databaseId: n.databaseId, name: n.name }));
-    const mapContacts = (contactNodes) => (contactNodes || []).map(n => ({ id: n.id, databaseId: n.databaseId, firstName: n.firstName, lastName: n.lastName, email: n.email })); // Include email if needed elsewhere
-
-    return {
-        databaseId: node.databaseId, // Use databaseId as the model's unique ID
-        title: node.title || "OOJ Detail", // Use OOJ Detail's title
-        jurisdictionName: jurisdictionName || "Unknown", // Add jurisdiction name
-
-        // Map ACF fields
-        lastDateOfExposure: fields.lastDateOfExposure || "",
-        dispositionsReturned: fields.dispositionsReturned || "",
-        acceptAndInvestigate: fields.acceptAndInvestigate || "",
-        notes: fields.notes || "",
-
-        // Map Taxonomy fields (assuming query fetches nodes{id, databaseId, name})
-        oojInfections: mapTaxonomy(node.oOJInfections?.nodes),
-        oojActivities: mapTaxonomy(node.oOJActivities?.nodes),
-        methodsOfTransmitting: mapTaxonomy(node.methodsOfTransmitting?.nodes),
-        acceptableForPiis: mapTaxonomy(node.acceptableForPiis?.nodes),
-
-        // Map Point of Contacts (assuming query fetches nodes{id, databaseId, firstName, lastName})
-        pointOfContacts: mapContacts(fields.pointOfContacts?.nodes)
-    };
-}
-/**
- * Helper function to map a GraphQL OOJDetail node to the Kendo Grid model structure.
- * (Matches the model defined in the updated initializeOojGrid function)
- * @param {object} node - The GraphQL node for an OOJDetail.
- * @param {string} jurisdictionName - The name of the associated jurisdiction.
- * @returns {object} - The data object formatted for the Kendo Grid model.
- */
-function mapOojNodeToGridModel(node, jurisdictionName) {
-    const fields = node.oojDetailsFields || {}; // Handle potentially null fields object
-    const mapTaxonomy = (taxonomyNodes) => (taxonomyNodes || []).map(n => ({ id: n.id, databaseId: n.databaseId, name: n.name }));
-    const mapContacts = (contactNodes) => (contactNodes || []).map(n => ({ id: n.id, databaseId: n.databaseId, firstName: n.firstName, lastName: n.lastName, email: n.email })); // Include email if needed elsewhere
-
-    return {
-        databaseId: node.databaseId, // Use databaseId as the model's unique ID
-        title: node.title || "OOJ Detail", // Use OOJ Detail's title
-        jurisdictionName: jurisdictionName || "Unknown", // Add jurisdiction name
-
-        // Map ACF fields
-        lastDateOfExposure: fields.lastDateOfExposure || "",
-        dispositionsReturned: fields.dispositionsReturned || "",
-        acceptAndInvestigate: fields.acceptAndInvestigate || "",
-        notes: fields.notes || "",
-
-        // Map Taxonomy fields (assuming query fetches nodes{id, databaseId, name})
-        oojInfections: mapTaxonomy(node.oOJInfections?.nodes),
-        oojActivities: mapTaxonomy(node.oOJActivities?.nodes),
-        methodsOfTransmitting: mapTaxonomy(node.methodsOfTransmitting?.nodes),
-        acceptableForPiis: mapTaxonomy(node.acceptableForPiis?.nodes),
-
-        // Map Point of Contacts (assuming query fetches nodes{id, databaseId, firstName, lastName})
-        pointOfContacts: mapContacts(fields.pointOfContacts?.nodes)
-    };
+// Helper function to get Jurisdiction Name from the global list
+function getJurisdictionName(jurisdictionId) {
+    if (!jurisdictionId) return "N/A";
+    const idToFind = parseInt(jurisdictionId, 10);
+    if (isNaN(idToFind)) return "Invalid ID";
+    var jurisdiction = allJurisdictionList.find(j => j.id === idToFind);
+    return jurisdiction ? (jurisdiction.title?.rendered || "Unknown Name") : "Unknown ID";
 }
 
-  // Update contact grid with selected jurisdiction
-  async function updateContactGrid(selectedJurisdictionId) {
-    logger.info("Updating Contact Grid for jurisdiction ID:", selectedJurisdictionId);
-
-    if (!contactGrid || !contactGrid.dataSource) {
-      logger.error("Contact Grid or its dataSource is not initialized");
-      return;
-    }
-
-    let users = []; // Default to empty
-
-    try {
-      // Check the selection type
-      if (selectedJurisdictionId === "ALL") {
-        // "ALL" is selected: Use the globally fetched list of all users
-        logger.info("Contact Grid: Displaying all users.");
-        users = jurisdictionUsersList; // Assumes this list is already populated and correct
-
-      } else if (selectedJurisdictionId && selectedJurisdictionId !== "ALL" && !isNaN(parseInt(selectedJurisdictionId, 10))) {
-        // A specific, valid jurisdiction ID is selected: Fetch users for this jurisdiction
-        const jurisdictionId = parseInt(selectedJurisdictionId, 10);
-        logger.info(`Contact Grid: Fetching users for specific jurisdiction ID: ${jurisdictionId}`);
-        const query = FETCH_USERS_BY_JURISDICTION_QUERY;
-        const result = await makeGraphQLRequest(query, { jurisdictionId: jurisdictionId }); // Pass the parsed Int ID
-
-        // Map the result, ensuring confidentialPhone is included
-        if (result.data && result.data.users && result.data.users.nodes) {
-            users = result.data.users.nodes.map(user => ({
-              id: user.databaseId, // Using databaseId as 'id' for the data item
-              databaseId: user.databaseId,
-              first_name: user.firstName || '',
-              last_name: user.lastName || '',
-              email: user.email || '',
-              acf: {
-                user_jurisdiction: user.stdContactDetails?.userJurisdiction?.nodes?.[0]?.databaseId || null,
-                hiv_role: user.stdContactDetails?.hivRole?.nodes?.map(role => role.databaseId) || [],
-                sti_role: user.stdContactDetails?.stiRole?.nodes?.map(role => role.databaseId) || [],
-                phone_user: user.stdContactDetails?.userPhone || '',
-                fax_user: user.stdContactDetails?.userFax || '',
-                notes_sti_hiv: user.stdContactDetails?.notesStiHiv || ''
-              }
-            }));
-        } else {
-             logger.warn(`No users found for jurisdiction ID: ${jurisdictionId}`);
-             users = []; // Set to empty if no users returned
-        }
-
-      } else {
-        // Selection is cleared or invalid: Keep the grid empty
-        logger.info("Contact Grid: Clearing grid due to invalid/empty selection.");
-        users = [];
-      }
-
-      // Set the data source for the grid
-      contactGrid.dataSource.data(users);
-
-    } catch (error) {
-      // Catch errors specifically during the GraphQL fetch for a specific jurisdiction
-      logger.error("Error fetching/updating users for Contact Grid:", error);
-      contactGrid.dataSource.data([]); // Clear grid on error
-      // Optionally show a user-facing error message
-      // showNotification("Error loading contact data.", "error");
-    }
-}
-
-// Helper functions
-  function getJurisdictionName(jurisdictionId) {
-    if (!jurisdictionId) {
-      return "N/A";
-    }
-    var jurisdiction = allJurisdictionList.find(
-      (j) => j.id === parseInt(jurisdictionId, 10)
-    );
-    return jurisdiction ? jurisdiction.title.rendered : "Unknown";
-  }
-
-  function formatRoles(roleIds, roleList) {
-    if (!roleIds || roleIds.length === 0) {
-      return "No role assigned";
-    }
-    return roleIds
-      .map((id) => {
-        var role = roleList.find((r) => r.id === id);
-        return role ? role.name : "Unknown Role";
-      })
-      .join(", ");
-  }
 </script>

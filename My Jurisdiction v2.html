@@ -1,14 +1,29 @@
-<style>
-    .header-tooltip-icon {
-        margin-left: 5px; /* Add space between title and icon */
-        cursor: help;    /* Change cursor on hover */
-        font-style: normal; /* Ensure it's not italic */
-        /* Optional: Adjust color or size if needed */
-        /* color: blue; */
-        /* font-size: 0.9em; */
-    }
-</style>
 <script>
+// --- Custom Kendo Validator Rule for MultiSelect ---
+(function ($, kendo) {
+    $.extend(true, kendo.ui.validator, {
+        rules: {
+            multiSelectRequired: function (input) {
+                // Check if the attribute is present
+                if (input.is("[data-multiselect-required=true]")) {
+                    // Find the MultiSelect widget associated with this input
+                    var ms = input.data("kendoMultiSelect");
+                    if (ms) {
+                        // Check if the MultiSelect has a value (at least one item selected)
+                        return ms.value().length > 0;
+                    }
+                }
+                return true; // If attribute not present or widget not found, validation passes
+            }
+        },
+        messages: {
+            // Default message if data-multiSelectRequired-msg is not set
+            multiSelectRequired: "Please select at least one item."
+        }
+    });
+})(jQuery, kendo);
+// --- End Custom Rule ---
+
 // Global Variables for Data
 var hivRolesData = [];
 var stiRolesData = [];
@@ -17,6 +32,7 @@ var oojActivitiesData = [];
 var methodsTransmittingData = [];
 var acceptablePiisData = [];
 var contactsData = [];
+var jurisdictionContactsData = [];
 
 $(document).ready(function () {
      
@@ -24,15 +40,16 @@ $(document).ready(function () {
 
     // --- Define Editor Functions in the outer scope ---
     function hivRoleEditor(container, options) {
-        $('<input name="' + options.field + '" />')
+        $('<input name="' + options.field + '" data-multiselect-required="true" data-multiselect-required-msg="At least one HIV Role must be selected"/>')
             .appendTo(container)
             .kendoMultiSelect({
                 dataTextField: "name",
                 dataValueField: "id",
-                dataSource: hivRolesData, // Still uses global data populated by AJAX
+                dataSource: hivRolesData,
                 value: options.model.acf.hiv_role || [],
                 valuePrimitive: true,
                 autoClose: false,
+                placeholder: "Select HIV Role(s)...",
                  change: function(e) {
                     options.model.set("acf.hiv_role", this.value());
                  }
@@ -40,21 +57,75 @@ $(document).ready(function () {
     }
 
     function stiRoleEditor(container, options) {
-         $('<input name="' + options.field + '" />')
+         $('<input name="' + options.field + '" data-multiselect-required="true" data-multiselect-required-msg="At least one STI Role must be selected"/>')
             .appendTo(container)
             .kendoMultiSelect({
                 dataTextField: "name",
                 dataValueField: "id",
-                dataSource: stiRolesData, // Still uses global data populated by AJAX
+                dataSource: stiRolesData,
                 value: options.model.acf.sti_role || [],
                 valuePrimitive: true,
                 autoClose: false,
+                placeholder: "Select STI Role(s)...",
                  change: function(e) {
                     options.model.set("acf.sti_role", this.value());
                  }
             }).data("kendoMultiSelect");
     }
      // --- End Editor Function Definitions ---
+
+    // --- Helper Function to Fetch Contacts and Refresh OOJ Grid ---
+    function refreshContactsAndOojGrid(jurisdictionId) {
+        console.log(">>> refreshContactsAndOojGrid: Function called for jurisdiction:", jurisdictionId); // <-- Log 1: Function entry
+        const contactsUrl = stdBaseUrl + "/users?_fields=id,first_name,last_name,acf&context=edit&per_page=100&acf_user_jurisdiction=" + jurisdictionId;
+
+        $.ajax({
+            url: contactsUrl,
+            dataType: "json",
+            beforeSend: function(xhr) {
+                 if (typeof wpApiSettings !== 'undefined' && wpApiSettings.nonce) {
+                    xhr.setRequestHeader('X-WP-Nonce', wpApiSettings.nonce);
+                } else {
+                    console.error("Refresh Contacts: wpApiSettings.nonce is missing!");
+                }
+            }
+        }).done(data => {
+            console.log(">>> refreshContactsAndOojGrid: AJAX success. Raw refreshed contacts data:", data); // <-- Log 2: AJAX Success
+            // Reprocess the contacts data
+            contactsData = data.map(user => {
+                 const userJurisdictionId = user.acf?.user_jurisdiction ? parseInt(user.acf.user_jurisdiction, 10) : null;
+                 return {
+                    id: user.id,
+                    databaseId: user.id,
+                    firstName: user.first_name || "",
+                    lastName: user.last_name || "",
+                    name: `${user.first_name || ""} ${user.last_name || ""}`.trim() || `User ${user.id}`,
+                    jurisdiction: userJurisdictionId
+                 };
+            });
+            console.log(">>> refreshContactsAndOojGrid: Processed refreshed contactsData:", contactsData); // <-- Log 3: Processed contacts
+
+            // Update the globally accessible jurisdictionContactsData
+            jurisdictionContactsData = contactsData.filter(contact => {
+                return contact && contact.jurisdiction === jurisdictionId;
+            });
+            console.log(">>> refreshContactsAndOojGrid: Updated global jurisdictionContactsData:", jurisdictionContactsData); // <-- Log 4: Updated filtered list
+
+            // Refresh the OOJ Grid DataSource
+            var oojGrid = $("#OojGrid").data("kendoGrid");
+            if (oojGrid && oojGrid.dataSource) {
+                console.log(">>> refreshContactsAndOojGrid: Found OOJ Grid instance. Calling dataSource.read()."); // <-- Log 5: Attempting read
+                oojGrid.dataSource.read();
+            } else {
+                console.warn(">>> refreshContactsAndOojGrid: Could not find OOJ Grid or its dataSource to refresh."); // <-- Log 6: Grid not found
+            }
+
+        }).fail(error => {
+            console.error(">>> refreshContactsAndOojGrid: AJAX failed.", error); // <-- Log 7: AJAX failure
+            alert("Could not refresh the contact list for the OOJ Grid. Please refresh the page manually.");
+        });
+    }
+    // --- End Helper Function ---
 
     // First, get the current user's jurisdiction ID
     getCurrentUserJurisdictionId().then(jurisdictionId => {
@@ -102,7 +173,7 @@ $(document).ready(function () {
             }).then(data => { acceptablePiisData = data.map(term => ({ id: term.id, databaseId: term.id, name: term.name })); return data; })
               .catch(error => { acceptablePiisData = []; return []; }),
 
-            // Fetch Contacts filtered by the obtained jurisdictionId
+            // Fetch Contacts filtered by the obtained jurisdictionId (Initial fetch)
             $.ajax({
                 // Filter by ACF field directly in the API call
                 url: stdBaseUrl + "/users?_fields=id,first_name,last_name,acf&context=edit&per_page=100&acf_user_jurisdiction=" + jurisdictionId,
@@ -117,7 +188,7 @@ $(document).ready(function () {
             }).then(data => {
                 console.log("Raw contacts data from API (filtered by jurisdiction " + jurisdictionId + "):", data); // Log raw data
                 // Map the data - jurisdiction ID parsing is less critical now but kept for consistency
-                contactsData = data.map(user => {
+                contactsData = data.map(user => { // <-- Update global contactsData
                     const userJurisdictionId = user.acf?.user_jurisdiction ? parseInt(user.acf.user_jurisdiction, 10) : null;
                     // Basic check if parsing failed or if the ID doesn't match the requested one (shouldn't happen with API filter)
                     if (isNaN(userJurisdictionId)) {
@@ -135,21 +206,24 @@ $(document).ready(function () {
                         jurisdiction: userJurisdictionId // Store the (hopefully correct) jurisdiction ID
                     };
                 });
-                console.log("Processed contactsData (should be only for jurisdiction " + jurisdictionId + "):", contactsData); // Log processed data
+                // Filter contacts for the current jurisdiction and store globally
+                jurisdictionContactsData = contactsData.filter(contact => { // <-- Update global jurisdictionContactsData
+                    return contact && contact.jurisdiction === jurisdictionId;
+                });
+                console.log("Processed contactsData and filtered jurisdictionContactsData:", contactsData, jurisdictionContactsData);
                 return data;
             }).catch(error => {
                 console.error("Error fetching contacts:", error);
                 contactsData = [];
+                jurisdictionContactsData = []; // <-- Ensure reset on error
                 return [];
             })
 
         ]).then(() => {
             // Data fetched successfully, initialize grids
-            // No need to filter contactsData again here, as it was filtered by the API
-            // But the OOJ grid initialization expects jurisdictionContactsData derived from contactsData
             initializeJurisdictionGrid(jurisdictionId);
-            initializeUserGrid(jurisdictionId); // Uses its own fetch
-            initializeOOJGrid(jurisdictionId);   // Will use the pre-filtered contactsData
+            initializeUserGrid(jurisdictionId); // Uses its own fetch but will trigger refresh
+            initializeOOJGrid(jurisdictionId);   // Will use the globally pre-filtered jurisdictionContactsData
         }).catch(error => {
              console.error("Error fetching prerequisite data:", error);
              // Handle error loading data (e.g., show message to user)
@@ -236,17 +310,19 @@ $(document).ready(function () {
             dataSource: jurisdictionDataSource,
             pageable: false,
             scrollable: false,
-            toolbar: ["save", "cancel"], 
+           
             columns: [
                 { field: "title.rendered", title: "Jurisdiction Name" }, 
                 { field: "acf.agency_name", title: "Agency Name" }, 
                 { field: "acf.address_jurisdiction", title: "Address" },
                 { field: "acf.phone_jurisdiction", title: "Phone" },
               
-                { field: "modified", title: "Last Updated", format: "{0:yyyy-MM-dd}" },
                 { command: ["edit"], title: "&nbsp;", width: "120px" }
             ],
-            editable: "inline" 
+            editable: {
+                mode: "popup",
+                window: { title: "Edit Jurisdiction" }
+            }
         });
     }
 
@@ -272,7 +348,7 @@ $(document).ready(function () {
                     },
                     method: "POST",
                     dataType: "json",
-                    contentType: "application/json; charset=utf-8", 
+                    contentType: "application/json; charset=utf-8",
                     beforeSend: function(xhr) {
                         if (typeof wpApiSettings !== 'undefined' && wpApiSettings.nonce) {
                             xhr.setRequestHeader('X-WP-Nonce', wpApiSettings.nonce);
@@ -349,6 +425,29 @@ $(document).ready(function () {
                         return JSON.stringify(createPayload);
                     }
                     return options;
+                },
+                requestEnd: function(e) {
+                     console.log(">>> usersDataSource.requestEnd: Fired. Event Type:", e.type, "Response:", e.response);
+                    if (e.type === "create" || e.type === "update" || e.type === "destroy") {
+                        let isSuccess = false;
+                        if (e.type === "destroy") {
+                            isSuccess = e.response && !e.response.error && !e.response.code && !e.response.message;
+                            console.log(`>>> usersDataSource.requestEnd: Destroy operation detected. Assuming success: ${isSuccess}`);
+                        } else {
+                            const hasError = e.response && (e.response.error || e.response.code || e.response.message);
+                            isSuccess = !hasError;
+                            console.log(`>>> usersDataSource.requestEnd: Create/Update operation detected. Error check result (hasError): ${hasError}, Success: ${isSuccess}`);
+                        }
+
+                        if (isSuccess) {
+                             console.log(`>>> usersDataSource.requestEnd: User Grid ${e.type} successful. Calling refreshContactsAndOojGrid.`);
+                             refreshContactsAndOojGrid(jurisdictionId);
+                        } else {
+                             console.warn(`>>> usersDataSource.requestEnd: User Grid ${e.type} requestEnd fired, but operation deemed unsuccessful or had errors. Not refreshing OOJ Grid.`, e.response);
+                        }
+                    } else {
+                        console.log(`>>> usersDataSource.requestEnd: Event type is ${e.type}. No refresh needed.`);
+                    }
                 }
             },
             schema: {
@@ -375,54 +474,75 @@ $(document).ready(function () {
                                 notes_sti_hiv: { type: "string", editable: true },
                                 hiv_role: {
                                     editable: true,
-                                    defaultValue: []
-                                    // Removed validation temporarily for debugging, can be added back
+                                    defaultValue: [],
+                                    validation: { required: true }
                                 },
                                 sti_role: {
                                     editable: true,
-                                    defaultValue: []
-                                     // Removed validation temporarily for debugging, can be added back
+                                    defaultValue: [],
+                                    validation: { required: true }
                                 }
                             } 
                         }
                     }
                 },
-                parse: function(response) {
-                    console.log("Parsing user response:", response);
+                parse: function(response, operation) {
+                    console.log(">>> usersDataSource.schema.parse: Starting parse. Response:", response);
+                    let processedResponse = response;
+
                     if (Array.isArray(response)) {
-                        response.forEach(user => {
+                        processedResponse = response.map(user => {
                             if (!user.acf) {
-                                user.acf = {
-                                  user_phone: "",
-                                  user_fax: "",
-                                  notes_sti_hiv: "",
-                                  hiv_role: [],
-                                  sti_role: []
-                                }; 
+                                user.acf = { user_phone: "", user_fax: "", notes_sti_hiv: "", hiv_role: [], sti_role: [] };
                             } else {
                                 if (!Array.isArray(user.acf.hiv_role)) user.acf.hiv_role = [];
                                 if (!Array.isArray(user.acf.sti_role)) user.acf.sti_role = [];
                             }
+                            return user;
                         });
+                         console.log(">>> usersDataSource.schema.parse: Processed READ response array.");
+                    } else if (response && typeof response === 'object' && response.id) {
+                         console.log(">>> usersDataSource.schema.parse: Processing single object response.");
+                          if (!response.acf) {
+                            response.acf = { user_phone: "", user_fax: "", notes_sti_hiv: "", hiv_role: [], sti_role: [] };
+                         } else {
+                             if (!Array.isArray(response.acf.hiv_role)) response.acf.hiv_role = [];
+                             if (!Array.isArray(response.acf.sti_role)) response.acf.sti_role = [];
+                         }
+                         processedResponse = response;
+                    } else if (e.type === 'destroy' && response && response.deleted === true) {
+                        console.log(">>> usersDataSource.schema.parse: Processing successful DELETE response.");
+                        processedResponse = response;
+                    } else {
+                        console.warn(">>> usersDataSource.schema.parse: Received unexpected response format:", response);
                     }
-                    return response; 
+
+                    console.log(">>> usersDataSource.schema.parse: Returning processed response:", processedResponse);
+                    return processedResponse;
                 },
                  error: function(e) {
-                    console.error("DataSource error in Users Grid:", e);
-                    var grid = $("#usersGrid").data("kendoGrid");
+                    console.error(">>> usersDataSource.schema.error:", e);
+                     if (e.xhr && e.xhr.responseText) {
+                         console.error("Server response:", e.xhr.responseText);
+                     } else if (e.errors) {
+                         console.error("Validation/Parse errors:", e.errors);
+                     }
+                     var grid = $("#userGrid").data("kendoGrid");
                      if (grid) {
                          grid.cancelChanges();
                      }
+                     alert("Error saving user data. Please check the details and try again. See console for more info.");
                 }
             },
 
         });
 
-        $("#userGrid").kendoGrid({
+        $("#userGrid").kendoGrid({ // <-- Corrected grid ID selector
             dataSource: usersDataSource,
             pageable: false,
-            scrollable: false,
-            toolbar: ["create", "save", "cancel"],
+            scrollable: true,
+            sortable: true,
+            toolbar: ["create"],
             columns: [
                 { field: "first_name", title: "First Name", width: "130px" },
                 { field: "last_name", title: "Last Name", width: "130px" },
@@ -505,10 +625,22 @@ $(document).ready(function () {
                     },
                     editor: stiRoleEditor
                 },
-                { field: "acf.notes_sti_hiv", title: "Notes", width: "200px" },
-                { command: ["edit", "destroy"], title: "&nbsp;", width: "180px" } 
+                {
+                    field: "acf.notes_sti_hiv",
+                    title: "Notes",
+                    width: "200px",
+                    editor: function(container, options) {
+                        $('<textarea data-bind="value:' + options.field + '" style="width: 100%;"></textarea>')
+                            .appendTo(container)
+                            .kendoTextArea({ rows: 5 });
+                    }
+                },
+                { command: ["edit", "destroy"], title: "&nbsp;", width: "180px" },
             ],
-            editable: "inline"
+             editable: {
+                mode: "popup",
+                window: { title: "Add/Edit Contact" }
+            }
         });
 
     }
@@ -516,43 +648,17 @@ $(document).ready(function () {
     function initializeOOJGrid(jurisdictionId) {
         var stdBaseUrl = "https://hivstiooj.cste.org/wp-json/wp/v2";
 
-        // Helper to safely extract IDs for saving
-        function extractTermIds(data) {
-            if (!data) return []; // Handle null or undefined
-            if (!Array.isArray(data)) { // Handle single object case
-                 return data.id ? [data.id] : [];
-            }
-            // Handle array case
-            return data.map(item => item && typeof item === 'object' ? item.id : item).filter(id => id !== null && id !== undefined);
-        }
-
-        // Helper to extract a single ID (for single select ACF fields)
-        function extractSingleTermId(data) {
-            if (!data) return null;
-            if (Array.isArray(data) && data.length > 0 && data[0]) {
-                return data[0].id || null;
-            }
-            if (!Array.isArray(data) && data.id) {
-                return data.id;
-            }
-            return null;
-        }
+        // --- Tooltip content mapping ---
+        const fieldTooltips = {
+            lastDateOfExposure: "Timeframe within which a partner/contact's exposure to an infection is eligible for investigation (e.g. syphilis exposure that occurred within the past 90 days). Complete this when the Activity is Partner Services: Partner/Contact.",
+            dispositionsReturned: "Indicate if/when you will return a disposition or information for requested activities.",
+        };
+        // --- End Tooltip content mapping ---
 
         // --- Filter contacts for the current jurisdiction ---
-        // This filtering step is now *technically* redundant if the API call worked,
-        // but it acts as a safeguard and ensures the data structure is consistent
-        // with the previous implementation.
-        const jurisdictionContactsData = contactsData.filter(contact => {
-            // Ensure strict comparison with the current grid's jurisdictionId
-            // Note: contact.jurisdiction might be null if parsing failed earlier,
-            // but should ideally match jurisdictionId due to the API filter.
-            return contact && contact.jurisdiction === jurisdictionId;
-        });
-        console.log(`Filtered contacts for Jurisdiction ${jurisdictionId} (from pre-filtered global list):`, jurisdictionContactsData);
+        console.log(`Initializing OOJ Grid - Using globally set jurisdictionContactsData for Jurisdiction ${jurisdictionId}:`, jurisdictionContactsData);
         if (jurisdictionContactsData.length === 0) {
-            // This warning might appear if the initial API filter returned nothing,
-            // or if there was an issue mapping the jurisdiction ID in the contactsData processing step.
-            console.warn(`No contacts found matching jurisdiction ID ${jurisdictionId} after local filtering. POC dropdown might be empty or API filter might need review.`);
+            console.warn(`OOJ Init: No contacts found matching jurisdiction ID ${jurisdictionId} in global data. POC dropdown/display might be empty initially.`);
         }
         // --- End filtering ---
 
@@ -607,20 +713,21 @@ $(document).ready(function () {
                 },
                 parameterMap: function(options, operation) {
                     if (operation === "create" || operation === "update") {
-                        console.log(`OOJ parameterMap (${operation}), input options:`, options);
+                        console.log(`OOJ parameterMap (${operation}), input options (expecting direct IDs):`, options);
 
-                        // Extract IDs for ACF fields
-                        const infectionId = extractSingleTermId(options.oojInfections);
-                        const activityId = extractSingleTermId(options.oojActivities);
-                        const piiIds = extractTermIds(options.acceptableForPiis); // Multi-select still needs array
-                        const pointOfContactId = extractSingleTermId(options.pointOfContacts); // ACF expects single ID
+                        // IDs should now be directly available on the options object
+                        const infectionId = options.oojInfections || null; // Expecting ID or null
+                        const activityId = options.oojActivities || null; // Expecting ID or null
+                        const piiIds = options.acceptableForPiis || []; // Expecting array of IDs
+                        const pointOfContactId = options.pointOfContacts || null; // Expecting ID or null
+                        const methodsIds = options.methodsOfTransmitting || []; // Expecting array of IDs
 
                         const payload = {
                             title: options.title || "OOJ Detail",
                             status: "publish",
                             acf: {
                                 jurisdiction_selection: jurisdictionId,
-                                // Map Kendo model fields back to ACF field names
+                                // Map Kendo model fields (now direct IDs/arrays) back to ACF field names
                                 infection: infectionId,
                                 activity: activityId,
                                 acceptable_for_pii: piiIds, // Send array of IDs
@@ -634,12 +741,8 @@ $(document).ready(function () {
                                 ooj_fax: options.oojFax != null ? String(options.oojFax) : "",
                                 ooj_email: options.oojEmail || ""
                             },
-                            // Keep sending top-level taxonomies just in case? Or remove if ACF handles it fully.
-                            // Let's assume ACF handles it fully based on the field definitions for now.
-                            // "acf-ooj-infection": infectionId ? [infectionId] : [], // Example if needed
-                            // "acf-ooj-activity": activityId ? [activityId] : [], // Example if needed
-                            // "acceptable-for-pii": piiIds, // Example if needed
-                            "iccr_method-of-transmitting": extractTermIds(options.methodsOfTransmitting) // Assume this is still standard WP taxonomy
+                            // Standard WP taxonomy field
+                            "iccr_method-of-transmitting": methodsIds
                         };
                         console.log(`OOJ Payload (${operation}):`, payload);
                         return JSON.stringify(payload);
@@ -653,170 +756,96 @@ $(document).ready(function () {
                     fields: {
                         id: { editable: false, nullable: true },
                         title: { type: "string", defaultValue: "OOJ Detail" },
-                        // Kendo Model fields - structure remains array of objects for consistency in templates/editors
-                        oojInfections: { defaultValue: [] }, // Will hold [{id, name}] even if single select
-                        oojActivities: { defaultValue: [] }, // Will hold [{id, name}] even if single select
-                        acceptableForPiis: { defaultValue: [] }, // Holds array for multi-select
-                        methodsOfTransmitting: { defaultValue: [] }, // Assume this is still standard multi-select WP taxonomy
-                        // Point of Contact - treat as single select for ACF, model holds array for consistency
+                        // --- Fields now store IDs or arrays of IDs ---
+                        oojInfections: { type: "number", nullable: true, defaultValue: null, validation: { required: true, message: "Infection is required" } }, // Store single ID or null
+                        oojActivities: { type: "number", nullable: true, defaultValue: null, validation: { required: true, message: "Activity is required" } }, // Store single ID or null
+                        acceptableForPiis: { defaultValue: [] }, // Store array of IDs
+                        methodsOfTransmitting: { defaultValue: [] }, // Store array of IDs
                         pointOfContacts: {
-                            defaultValue: [],
+                            type: "number", // Store single ID
+                            nullable: true,
+                            defaultValue: null,
                             validation: { required: true, message: "Point of Contact is required" }
                         },
-                        // Other fields
+                        // Other fields remain the same
                         lastDateOfExposure: { type: "string" },
                         dispositionsReturned: { type: "string" },
                         acceptAndInvestigate: { type: "string" },
                         notes: { type: "string" },
-                        oojPhone: { type: "string" },
-                        oojFax: { type: "string" },
-                        oojEmail: { type: "string", validation: { email: true } }
+                        oojPhone: { type: "string", nullable: true, defaultValue: "" }, // Allow null/empty
+                        oojFax: { type: "string", nullable: true, defaultValue: "" }, // Allow null/empty
+                        oojEmail: { type: "string", nullable: true, defaultValue: "" } // Allow null/empty, default to empty string
                     }
                 },
+                // --- SIMPLIFIED PARSE FUNCTION ---
                 parse: function(response) {
-                    console.log("Starting OOJ Parse..."); // Log start
+                    console.log("Starting OOJ Parse (Simplified to store only IDs)...");
                     let dataToProcess = [];
                     if (Array.isArray(response)) { dataToProcess = response; }
                     else if (response && typeof response === 'object' && response.id) { dataToProcess = [response]; }
                     else { console.warn("OOJ parse: Response format unexpected", response); return []; }
 
                     try {
-                        const mappedData = dataToProcess.map((item, index) => { // Add index for logging
+                        const mappedData = dataToProcess.map((item, index) => {
                             console.log(`\n--- Processing Item Index: ${index}, ID: ${item.id} ---`);
                             if (!item || typeof item !== 'object') { console.warn('Invalid item in data', item); return null; }
 
                             const acf = item.acf || {};
+                            // Embedded data is no longer needed by parse, but keep log if useful
                             const embeddedAcfTerms = (item._embedded && item._embedded['acf:term']) || [];
                             const embeddedWpTerms = (item._embedded && item._embedded['wp:term']) || [];
-
-                            // Log the raw ACF data and embedded terms for this item
                             console.log(`  Item ${item.id} - Raw ACF:`, JSON.stringify(acf));
-                            console.log(`  Item ${item.id} - Embedded ACF Terms:`, embeddedAcfTerms);
-                            // console.log(`  Item ${item.id} - Embedded WP Terms:`, embeddedWpTerms);
+                            // console.log(`  Item ${item.id} - Embedded ACF Terms:`, embeddedAcfTerms);
 
+                            // Helper to ensure array of numbers
+                            const ensureArrayOfIds = (value) => {
+                                if (!value) return [];
+                                if (Array.isArray(value)) return value.map(id => parseInt(id, 10)).filter(id => !isNaN(id));
+                                const singleId = parseInt(value, 10);
+                                return !isNaN(singleId) ? [singleId] : [];
+                            };
+                             // Helper to ensure single number or null
+                            const ensureSingleIdOrNull = (value) => {
+                                if (value === null || value === undefined || value === '') return null;
+                                const singleId = parseInt(value, 10);
+                                return !isNaN(singleId) ? singleId : null;
+                            };
+
+                            const methodsTermKey = 'iccr_method-of-transmitting'; // Standard WP Taxonomy
 
                             const mapped = {
                                 id: item.id,
                                 title: item.title?.rendered || "OOJ Detail",
+
+                                // --- Store only IDs ---
+                                pointOfContacts: ensureSingleIdOrNull(acf.point_of_contact),
+                                oojInfections: ensureSingleIdOrNull(acf.infection),
+                                oojActivities: ensureSingleIdOrNull(acf.activity),
+                                acceptableForPiis: ensureArrayOfIds(acf.acceptable_for_pii),
+                                methodsOfTransmitting: ensureArrayOfIds(item[methodsTermKey]), // Get from top level
+
+                                // Other fields
                                 lastDateOfExposure: acf.last_date_of_exposure || "",
                                 dispositionsReturned: acf.dispositions_returned || "",
                                 acceptAndInvestigate: acf.accept_and_investigate || "",
                                 notes: acf.notes || "",
-                                pointOfContacts: [],
-                                oojInfections: [],
-                                oojActivities: [],
-                                acceptableForPiis: [],
-                                methodsOfTransmitting: [],
                                 oojPhone: acf.ooj_phone || "",
                                 oojFax: acf.ooj_fax || "",
-                                oojEmail: acf.ooj_email || ""
+                                oojEmail: acf.ooj_email || "" // Keep default to empty string if null/undefined from API
                             };
 
-                            // --- POC Mapping ---
-                            const contactId = acf.point_of_contact;
-                            if (contactId !== null && contactId !== undefined) {
-                                 const safeContactsData = Array.isArray(jurisdictionContactsData) ? jurisdictionContactsData : [];
-                                 const user = safeContactsData.find(c => c && String(c.id) === String(contactId));
-                                 if (user) {
-                                     mapped.pointOfContacts = [{ id: user.id, name: user.name || `User ${user.id}` }]; // Simplified object
-                                     console.log(`  Item ${item.id} - POC Found:`, mapped.pointOfContacts[0]);
-                                 } else {
-                                     mapped.pointOfContacts = [{ id: contactId, name: `Unknown (${contactId})` }];
-                                     console.warn(`  Item ${item.id}: Point of Contact ID ${contactId} in ACF but not in contactsData.`);
-                                 }
-                            } else {
-                                 console.log(`  Item ${item.id} - POC ID is null/undefined.`);
-                            }
-
-                            // --- ACF Taxonomy Mapping ---
-                            const findEmbeddedAcfTerm = (id) => {
-                                if (!id || !Array.isArray(embeddedAcfTerms)) return null;
-                                const found = embeddedAcfTerms.find(t => t && String(t.id) === String(id));
-                                // console.log(`    findEmbeddedAcfTerm(${id}): Found ->`, found); // Detailed log
-                                return found;
-                            };
-
-                            // Infection
-                            const infectionId = acf.infection;
-                            console.log(`  Item ${item.id} - acf.infection ID: ${infectionId}`);
-                            if (infectionId) {
-                                const embeddedTerm = findEmbeddedAcfTerm(infectionId);
-                                if (embeddedTerm && embeddedTerm.name) { // Check if name exists
-                                    mapped.oojInfections = [{ id: embeddedTerm.id, name: embeddedTerm.name }];
-                                    console.log(`  Item ${item.id} - Mapped Infection:`, mapped.oojInfections[0]);
-                                } else {
-                                     console.warn(`  Item ${item.id}: Infection term for ID ${infectionId} not found in _embedded['acf:term'] or missing name.`);
-                                     mapped.oojInfections = [{ id: infectionId, name: `Unknown (${infectionId})` }];
-                                }
-                            }
-
-                            // Activity
-                            const activityId = acf.activity;
-                            console.log(`  Item ${item.id} - acf.activity ID: ${activityId}`);
-                            if (activityId) {
-                                const embeddedTerm = findEmbeddedAcfTerm(activityId);
-                                if (embeddedTerm && embeddedTerm.name) {
-                                    mapped.oojActivities = [{ id: embeddedTerm.id, name: embeddedTerm.name }];
-                                    console.log(`  Item ${item.id} - Mapped Activity:`, mapped.oojActivities[0]);
-                                } else {
-                                     console.warn(`  Item ${item.id}: Activity term for ID ${activityId} not found in _embedded['acf:term'] or missing name.`);
-                                     mapped.oojActivities = [{ id: activityId, name: `Unknown (${activityId})` }];
-                                }
-                            }
-
-                             // Acceptable PII
-                            const piiIds = acf.acceptable_for_pii;
-                            console.log(`  Item ${item.id} - acf.acceptable_for_pii IDs:`, piiIds);
-                            if (Array.isArray(piiIds) && piiIds.length > 0) {
-                                 mapped.acceptableForPiis = piiIds.map(id => {
-                                     const embeddedTerm = findEmbeddedAcfTerm(id);
-                                     if (embeddedTerm && embeddedTerm.name) {
-                                         return { id: embeddedTerm.id, name: embeddedTerm.name };
-                                     } else {
-                                         console.warn(`  Item ${item.id}: PII term for ID ${id} not found in _embedded['acf:term'] or missing name.`);
-                                         return { id: id, name: `Unknown (${id})` };
-                                     }
-                                 }).filter(t => t !== null);
-                                 console.log(`  Item ${item.id} - Mapped Acceptable PII:`, mapped.acceptableForPiis);
-                            }
-
-                            // --- Standard WP Taxonomy (Methods) ---
-                            const methodsTermKey = 'iccr_method-of-transmitting';
-                            const methodsTermIds = item[methodsTermKey];
-                            console.log(`  Item ${item.id} - item['${methodsTermKey}'] IDs:`, methodsTermIds);
-                            const methodsTaxonomyGroup = embeddedWpTerms.find(group => Array.isArray(group) && group.length > 0 && group[0].taxonomy === methodsTermKey);
-
-                            if (methodsTermIds && Array.isArray(methodsTermIds) && methodsTermIds.length > 0) {
-                                if (methodsTaxonomyGroup) {
-                                     mapped.methodsOfTransmitting = methodsTermIds.map(termId => {
-                                         const foundEmbeddedTerm = methodsTaxonomyGroup.find(t => t && String(t.id) === String(termId));
-                                         if (foundEmbeddedTerm && foundEmbeddedTerm.name) {
-                                             return { id: foundEmbeddedTerm.id, name: foundEmbeddedTerm.name };
-                                         } else {
-                                             console.warn(`  Item ${item.id}, Taxonomy ${methodsTermKey}: Term for ID ${termId} not found in its embedded group or missing name.`);
-                                             return { id: termId, name: `Unknown (${termId})` };
-                                         }
-                                     }).filter(t => t !== null);
-                                     console.log(`  Item ${item.id} - Mapped Methods:`, mapped.methodsOfTransmitting);
-                                } else {
-                                     console.warn(`  Item ${item.id}: Embedded group for '${methodsTermKey}' not found in _embedded['wp:term'].`);
-                                     mapped.methodsOfTransmitting = methodsTermIds.map(id => ({ id: id, name: `Unknown (${id})`}));
-                                }
-                            }
-                            // --- End Mappings ---
-
-                            console.log(`  Item ${item.id} - Final Mapped Object:`, mapped); // Log final object structure before return
+                            console.log(`  Item ${item.id} - Final Mapped Object (IDs only):`, mapped);
                             return mapped;
                         }).filter(item => item !== null);
 
-                        console.log("Parse Complete. Final Mapped Data for DataSource:", mappedData);
+                        console.log("Parse Complete. Final Mapped Data for DataSource (IDs only):", mappedData);
                         return mappedData;
 
                     } catch (error) {
                         console.error("Error during map operation in OOJ parse:", error);
                         return [];
                     }
-                }, // End parse function
+                }, // End simplified parse function
                 error: function(e) {
                     console.error("DataSource error in OOJ Grid:", e);
                     let message = "An error occurred processing the OOJ data.";
@@ -835,95 +864,98 @@ $(document).ready(function () {
             }
         });
 
+        // --- TEMPLATE FUNCTION for Point of Contact (uses global jurisdictionContactsData) ---
         function createPointOfContactsTemplate() {
-            return function(dataItem) {
-                // console.log(`Template pointOfContacts dataItem:`, dataItem);
+             return function(dataItem) {
+                 try {
+                     const contactId = dataItem.pointOfContacts;
+                     // console.log(`POC Template - Start - dataItem.pointOfContacts: ${contactId}`); // Keep logs if needed for debugging
 
-                let potentialContactData = dataItem.pointOfContacts;
-                let contact = null;
+                     if (contactId !== null && contactId !== undefined) {
+                         // Use the global jurisdictionContactsData directly
+                         const safeContacts = Array.isArray(jurisdictionContactsData) ? jurisdictionContactsData : [];
+                         const user = safeContacts.find(c => c && String(c.id) === String(contactId));
+                         // console.log(`POC Template - Lookup result for ID ${contactId}:`, user ? user.name : 'Not Found');
 
-                if (Array.isArray(potentialContactData) && potentialContactData.length > 0) {
-                     contact = potentialContactData[0];
-                }
-                else if (potentialContactData && typeof potentialContactData === 'object' && !Array.isArray(potentialContactData)) {
-                    contact = potentialContactData;
-                }
-
-                // console.log(`Template pointOfContacts contact:`, contact);
-
-                return contact ? contact.name : ''; // Return empty string instead of '—'
-            };
+                         if (user && user.name) {
+                             return user.name;
+                         } else {
+                             // If user ID exists but lookup fails (e.g., deleted user), return empty string
+                             console.warn(`POC Template - User ID ${contactId} not found in global jurisdictionContactsData. Displaying empty.`);
+                             return ''; // <-- Changed this line
+                         }
+                     }
+                     return ''; // Return empty if no ID (null)
+                 } catch (error) {
+                     console.error("POC Template - Error during execution:", error, "DataItem:", dataItem);
+                     return "[Error]";
+                 }
+             };
         }
 
+        // --- EDITOR FUNCTION for Point of Contact (uses global jurisdictionContactsData) ---
         function createPointOfContactsEditor(container, options) {
-            $('<input required name="' + options.field + '" data-required-msg="Point of Contact is required"/>') 
+            $('<input required name="' + options.field + '" data-required-msg="Point of Contact is required"/>')
                 .appendTo(container)
                 .kendoDropDownList({
                     dataTextField: "name",
                     dataValueField: "id",
-                    dataSource: jurisdictionContactsData,
+                    dataSource: jurisdictionContactsData, // <-- Reads the global variable
                     optionLabel: "Select Contact...",
-                    value: options.model.pointOfContacts && options.model.pointOfContacts.length > 0 ? options.model.pointOfContacts[0].id : null,
+                    value: options.model.pointOfContacts,
                     change: function(e) {
-                        const selectedId = this.value();
-                        const selectedUser = jurisdictionContactsData.find(c => c.id == selectedId);
-                        options.model.set(options.field, selectedUser ? [selectedUser] : []);
+                        options.model.set(options.field, this.value() ? parseInt(this.value(), 10) : null);
                     }
                 });
         }
 
+        // --- Grid Definition ---
         $("#OojGrid").kendoGrid({
             dataSource: oojDataSource,
             pageable: false,
-            scrollable: false,
-            toolbar: ["create", "save", "cancel"],
+            scrollable: true,
+            sortable: true,
+            toolbar: ["create"],
             columns: [
                  {
-                    field: "oojInfections", // Matches Kendo model field
+                    field: "oojInfections",
                     title: "Infection",
-                    width: 180,
-                    template: createTaxonomyTemplate("oojInfections"), // Uses the model field
+                    template: createTaxonomyTemplate("oojInfections"),
                     editor: function(container, options) {
-                        // Use SingleSelectEditor because ACF field is single select
                         createSingleSelectEditor(container, options, {
-                            fieldName: "oojInfections", // Matches Kendo model field
-                            dataSource: oojInfectionsData, // Global list for options
+                            fieldName: "oojInfections",
+                            dataSource: oojInfectionsData,
                             placeholder: "Select Infection..."
                         });
                     }
                 },
                 {
-                    field: "oojActivities", // Matches Kendo model field
+                    field: "oojActivities",
                     title: "Activity",
-                    width: 180,
-                    template: createTaxonomyTemplate("oojActivities"), // Uses the model field
+                    template: createTaxonomyTemplate("oojActivities"),
                     editor: function(container, options) {
-                         // Use SingleSelectEditor because ACF field is single select
                         createSingleSelectEditor(container, options, {
-                            fieldName: "oojActivities", // Matches Kendo model field
-                            dataSource: oojActivitiesData, // Global list for options
+                            fieldName: "oojActivities",
+                            dataSource: oojActivitiesData,
                             placeholder: "Select Activity..."
                         });
                     }
                 },
-                { 
-                    field: "lastDateOfExposure", 
+                {
+                    field: "lastDateOfExposure",
                     title: "Last Date of Exposure",
                     headerTemplate: "Last Date of Exposure <span class='header-tooltip-icon'>&#9432;</span>",
-                    width: 150,
-                     headerAttributes: { "data-tooltip-content": "Timeframe within which a partner/contact's exposure to an infection is eligible for investigation (e.g. syphilis exposure that occurred within the past 90 days). Complete this when the Activity is Partner Services: Partner/Contact." }
-                },
-                { 
-                    field: "dispositionsReturned", 
-                    title: "Dispo/Info Returned",
-                    headerTemplate: "Dispo/Info Returned <span class='header-tooltip-icon'>&#9432;</span>",
-                    width: 160,
-                    headerAttributes: { "data-tooltip-content": "Indicate if/when you will return a disposition or information for requested activities." }
+                    headerAttributes: { "data-tooltip-content": fieldTooltips.lastDateOfExposure }
                 },
                 {
-                    field: "methodsOfTransmitting", // Keep using standard WP taxonomy for this one
+                    field: "dispositionsReturned",
+                    title: "Dispo/Info Returned",
+                    headerTemplate: "Dispo/Info Returned <span class='header-tooltip-icon'>&#9432;</span>",
+                    headerAttributes: { "data-tooltip-content": fieldTooltips.dispositionsReturned }
+                },
+                {
+                    field: "methodsOfTransmitting",
                     title: "Method(s) of Transmitting",
-                    width: 180,
                     template: createTaxonomyTemplate("methodsOfTransmitting"),
                     editor: function(container, options) {
                         createMultiSelectEditor(container, options, {
@@ -934,15 +966,13 @@ $(document).ready(function () {
                     }
                 },
                 {
-                    field: "acceptableForPiis", // Matches Kendo model field
+                    field: "acceptableForPiis",
                     title: "Acceptable for PII",
-                    width: 180,
-                    template: createTaxonomyTemplate("acceptableForPiis"), // Uses the model field
+                    template: createTaxonomyTemplate("acceptableForPiis"),
                     editor: function(container, options) {
-                        // Use MultiSelectEditor because ACF field is multi-select
                         createMultiSelectEditor(container, options, {
-                            fieldName: "acceptableForPiis", // Matches Kendo model field
-                            dataSource: acceptablePiisData, // Global list for options
+                            fieldName: "acceptableForPiis",
+                            dataSource: acceptablePiisData,
                             placeholder: "Select PII..."
                         });
                     }
@@ -950,9 +980,7 @@ $(document).ready(function () {
                 {
                     field: "oojPhone",
                     title: "Phone",
-                    //headerTemplate: "Phone <span class='header-tooltip-icon'>&#9432;</span>",
-                    headerAttributes: { "data-tooltip-content": "Phone number associated with the OOJ case details." }, 
-                    width: 130,
+                    headerAttributes: { "data-tooltip-content": fieldTooltips.oojPhone },
                     template: function(dataItem) {
                         const rawValue = dataItem.oojPhone;
                         if (typeof rawValue === 'string' || typeof rawValue === 'number') {
@@ -968,9 +996,7 @@ $(document).ready(function () {
                 {
                     field: "oojFax",
                     title: "Fax",
-                    //headerTemplate: "Fax <span class='header-tooltip-icon'>&#9432;</span>",
-                    headerAttributes: { "data-tooltip-content": "Fax number associated with the OOJ case details." }, 
-                    width: 130,
+                    headerAttributes: { "data-tooltip-content": fieldTooltips.oojFax },
                     template: function(dataItem) {
                         const rawValue = dataItem.oojFax;
                         if (typeof rawValue === 'string' || typeof rawValue === 'number') {
@@ -983,45 +1009,104 @@ $(document).ready(function () {
                         return "—";
                     }
                 },
-                { 
-                    field: "oojEmail", 
+                {
+                    field: "oojEmail",
                     title: "Email",
-                    //headerTemplate: "Email <span class='header-tooltip-icon'>&#9432;</span>", 
-                    headerAttributes: { "data-tooltip-content": "Email address associated with the OOJ case details." }, 
-                    width: 180
+                    headerAttributes: { "data-tooltip-content": fieldTooltips.oojEmail },
                 },
                 {
                     field: "pointOfContacts",
                     title: "Point of Contact",
-                    width: 180,
                     template: createPointOfContactsTemplate(),
                     editor: createPointOfContactsEditor
                 },
                 {
                     field: "notes",
                     title: "Notes",
-                    width: 200,
-                    headerAttributes: { "data-tooltip-content": "Enter any relevant notes for this OOJ case." }
+                    headerAttributes: { "data-tooltip-content": fieldTooltips.notes },
+                    editor: function(container, options) {
+                        $('<textarea data-bind="value:' + options.field + '" style="width: 100%;"></textarea>')
+                            .appendTo(container)
+                            .kendoTextArea({ rows: 5 });
+                    }
                 },
                 { command: ["edit", "destroy"], title: "&nbsp;", width: "180px" }
             ],
-            editable: "inline",
+            editable: {
+                mode: "popup",
+                window: { title: "Add/Edit OOJ Record" }
+            },
              save: function(e) {
                 console.log("OOJ Grid save event. Model validation should occur.", e.model);
+            },
+            edit: function(e) {
+                var container = e.container; // The popup window container
+                container.addClass("ooj-popup-editor");
+
+                // --- Define tooltips specifically for the popup ---
+                const popupTooltips = {
+                     lastDateOfExposure: fieldTooltips.lastDateOfExposure, // Reuse text from main map
+                     dispositionsReturned: fieldTooltips.dispositionsReturned // Reuse text from main map
+                     // Only include fields that should have tooltips in the popup
+                };
+                // --- End popup specific tooltips ---
+
+                // Iterate ONLY through the fields needed for the popup
+                for (const fieldName in popupTooltips) { // <-- **** Use popupTooltips here ****
+                    if (popupTooltips.hasOwnProperty(fieldName)) {
+                        var label = container.find("label[for='" + fieldName + "']");
+                        if (label.length > 0) {
+                            // Create the tooltip icon span WITH the title attribute
+                            var tooltipIcon = $('<span class="popup-tooltip-icon" title="' + popupTooltips[fieldName] + '">&#9432;</span>');
+                            label.append(tooltipIcon);
+                        } else {
+                             console.warn("Could not find label for field:", fieldName, "in popup editor.");
+                        }
+                    }
+                }
+
+                 // Initialize Kendo Tooltip for the icons within this specific popup
+                 container.kendoTooltip({
+                     filter: ".popup-tooltip-icon", // Target only our icons
+                     position: "right",
+                     content: function(e) {
+                         // Retrieve content from the icon's title attribute
+                         var content = $(e.target).attr("title");
+                         console.log("Tooltip hover on:", e.target, "Title:", content); // Debugging log
+                         return content || ""; // Return empty string if title is missing
+                     },
+                     width: 200, // Adjust width as needed
+                     showAfter: 500 // Delay before showing
+                 });
             }
         });
 
+        // Initialize header tooltips (keep this)
         $("#OojGrid .k-grid-header").kendoTooltip({
             filter: ".header-tooltip-icon",
             position: "bottom",
             content: function(e) {
-                var th = $(e.target).closest('th'); 
-                var tooltipContent = th.data("tooltip-content");
+                var th = $(e.target).closest('th');
+                var tooltipContent = th.data("tooltip-content") || th.find('.header-tooltip-icon').parent().attr('data-tooltip-content'); // Check parent if needed
                 return tooltipContent || "No description";
             },
             width: 200,
-            showAfter: 750 
+            showAfter: 750
         });
+
+        // --- Add some basic CSS for the new popup icon ---
+        // You might want to put this in your main <style> block
+        if ($('#popup-tooltip-styles').length === 0) {
+             $('<style id="popup-tooltip-styles">' +
+               '.ooj-popup-editor label .popup-tooltip-icon {' +
+                 ' margin-left: 5px;' +
+                 ' cursor: help;' +
+                 ' font-style: normal;' +
+                 ' color: #428bca;' + /* Bootstrap info blue */
+                 ' font-size: 0.9em;' +
+               '}' +
+             '</style>').appendTo('head');
+        }
     }
 });
 
@@ -1079,33 +1164,93 @@ function generateSecurePassword(length = 12) {
 
 function createTaxonomyTemplate(fieldName) {
     return function(dataItem) {
-        // console.log(`Template ${fieldName} dataItem:`, dataItem); // Keep for debugging if needed
-        const items = dataItem[fieldName]; // Should be an array of objects from parse
+         try {
+            let ids = dataItem[fieldName]; // Expecting ID (number/null) or array/ObservableArray of IDs
+            let termIds = [];
 
-        if (Array.isArray(items) && items.length > 0) {
-            // Filter out any potentially invalid items just in case
-            return items
-                .map(item => (item && typeof item === 'object' && item.name) ? item.name : null)
-                .filter(name => name !== null)
-                .join(', ');
-        }
-        return ''; // Return empty string instead of '—'
+            console.log(`Taxonomy Template (${fieldName}) - Start - Received dataItem.${fieldName}:`, ids);
+
+            // --- NEW: Handle Kendo ObservableArray ---
+            if (ids && typeof ids.toJSON === 'function') {
+                console.log(`Taxonomy Template (${fieldName}) - Detected ObservableArray, converting with .toJSON()`);
+                ids = ids.toJSON(); // Convert Kendo ObservableArray to plain JS array
+            }
+            // --- End New ---
+
+            // Now process 'ids' which should be a primitive or a plain array
+            if (Array.isArray(ids)) {
+                // Ensure values are numbers, filter out any potential issues
+                termIds = ids.map(id => parseInt(id, 10)).filter(id => !isNaN(id));
+            } else if (ids !== null && ids !== undefined) {
+                // Handle single ID case (parse should give null or number for single selects now)
+                const singleId = parseInt(ids, 10);
+                if (!isNaN(singleId)) {
+                    termIds = [singleId]; // Wrap single ID in array
+                }
+            }
+            console.log(`Taxonomy Template (${fieldName}) - Processed termIds:`, termIds);
+
+
+            if (termIds.length === 0) {
+                console.log(`Taxonomy Template (${fieldName}) - No valid termIds, returning empty string.`);
+                return '';
+            }
+
+            let globalDataSource = [];
+            switch (fieldName) {
+                case 'oojInfections':         globalDataSource = oojInfectionsData; break;
+                case 'oojActivities':         globalDataSource = oojActivitiesData; break;
+                case 'methodsOfTransmitting': globalDataSource = methodsTransmittingData; break;
+                case 'acceptableForPiis':     globalDataSource = acceptablePiisData; break;
+                default:
+                    console.warn(`Taxonomy Template: Unknown fieldName '${fieldName}'`);
+                    return `Unknown Field (${fieldName})`;
+            }
+
+            const safeDataSource = Array.isArray(globalDataSource) ? globalDataSource : [];
+            console.log(`Taxonomy Template (${fieldName}) - Using globalDataSource (length ${safeDataSource.length})`);
+
+
+            const names = termIds.map(termId => {
+                console.log(`Taxonomy Template (${fieldName}) - Looking up termId ${termId}`);
+                const term = safeDataSource.find(t => t && String(t.id) === String(termId));
+                console.log(`Taxonomy Template (${fieldName}) - Lookup result for ${termId}:`, term ? term.name : 'Not Found');
+
+                if (term && term.name) {
+                    return term.name;
+                } else {
+                     console.warn(`Taxonomy Template (${fieldName}) - Term ID ${termId} not found in globalDataSource.`);
+                     return `Unknown (${termId})`;
+                }
+            }).filter(name => name !== null);
+
+            const resultString = names.join(', ');
+             console.log(`Taxonomy Template (${fieldName}) - Returning joined string: "${resultString}"`);
+            return resultString;
+
+         } catch(error) {
+             console.error(`Taxonomy Template (${fieldName}) - Error during execution:`, error, "DataItem:", dataItem);
+             return "[Error]";
+         }
     };
 }
 
 function createSingleSelectEditor(container, options, config) {
-    $('<input name="' + config.fieldName + '" />')
+    // Retrieve the validation message from the model's schema if available
+    const validationRule = options.model.fields[config.fieldName]?.validation;
+    const requiredMsg = validationRule?.message || `${config.fieldName} is required`; // Fallback message
+
+    $('<input required name="' + config.fieldName + '" data-required-msg="' + requiredMsg + '" />') // Added required and data-required-msg
         .appendTo(container)
         .kendoDropDownList({
             dataTextField: "name",
             dataValueField: "id",
             dataSource: config.dataSource,
             optionLabel: config.placeholder || "Select...",
-            value: options.model[config.fieldName] && options.model[config.fieldName].length > 0 ? options.model[config.fieldName][0].id : null,
+            value: options.model[config.fieldName], // Value is now the direct ID or null
             change: function(e) {
-                const selectedId = this.value();
-                const selectedItem = config.dataSource.find(item => item.id == selectedId);
-                options.model.set(config.fieldName, selectedItem ? [selectedItem] : []);
+                 // The model field expects just the ID now
+                options.model.set(config.fieldName, this.value() ? parseInt(this.value(), 10) : null);
             }
         });
 }
@@ -1118,12 +1263,12 @@ function createMultiSelectEditor(container, options, config) {
             dataValueField: "id",
             dataSource: config.dataSource,
             placeholder: config.placeholder || "Select...",
-            value: options.model[config.fieldName] ? options.model[config.fieldName].map(item => item.id) : [],
+            value: options.model[config.fieldName] || [], // Value is now the array of IDs
+            valuePrimitive: true, // Important: work with primitive values (IDs)
             autoClose: false,
             change: function(e) {
-                const selectedIds = this.value();
-                const selectedItems = selectedIds.map(id => config.dataSource.find(item => item.id == id)).filter(item => item);
-                options.model.set(config.fieldName, selectedItems);
+                // The model field expects the array of IDs directly
+                options.model.set(config.fieldName, this.value());
             }
         });
 }
