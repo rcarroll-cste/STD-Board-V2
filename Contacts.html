@@ -16,6 +16,7 @@
   var allJurisdictionList = []; // Holds all jurisdictions fetched initially
   var methodsOfTransmissionList = [];
   var acceptablePiisData = []; // <-- ADDED: Declare the global variable
+  var allContactsList = []; // <-- ADDED: Declare the global variable
 
   // Logger utility for consistent logging
   const logger = {
@@ -57,7 +58,8 @@
         stiRoleData,
         methodsOfTransmissionData,
         fetchedAcceptablePiisData,
-        allJurisdictionData
+        allJurisdictionData,
+        allContactsData // <-- ADDED: Fetch all contacts
       ] = await Promise.all([
         $.ajax({ url: stdBaseUrl + '/acf-ooj-infection?_fields=id,name&per_page=100', method: 'GET', beforeSend: addNonceToAjax }).catch(() => []),
         $.ajax({ url: stdBaseUrl + '/acf-ooj-activity?_fields=id,name&per_page=100', method: 'GET', beforeSend: addNonceToAjax }).catch(() => []),
@@ -65,7 +67,8 @@
         $.ajax({ url: stdBaseUrl + '/sti-role?_fields=id,name&per_page=100', method: 'GET', beforeSend: addNonceToAjax }).catch(() => []),
         $.ajax({ url: stdBaseUrl + '/iccr_method-of-transmitting?_fields=id,name&per_page=100', method: 'GET', beforeSend: addNonceToAjax }).catch(() => []),
         $.ajax({ url: stdBaseUrl + '/acceptable-for-pii?_fields=id,name&per_page=100', method: 'GET', beforeSend: addNonceToAjax }).catch(() => []),
-        $.ajax({ url: stdBaseUrl + '/std_jurisdiction?_fields=id,title,modified,acf&per_page=3000', method: 'GET', beforeSend: addNonceToAjax }).catch(() => []) // Fetch all jurisdictions
+        $.ajax({ url: stdBaseUrl + '/std_jurisdiction?_fields=id,title,modified,acf&per_page=3000', method: 'GET', beforeSend: addNonceToAjax }).catch(() => []), // Fetch all jurisdictions
+        $.ajax({ url: stdBaseUrl + '/users?_fields=id,first_name,last_name&context=edit&per_page=3000', method: 'GET', beforeSend: addNonceToAjax }).catch(() => [])
       ]);
 
       // Set the global variables - Map data to consistent {id, name} or expected structure
@@ -81,6 +84,11 @@
         modified: jurisdiction.modified,
         acf: jurisdiction.acf || {} // Ensure acf object exists
       }));
+      // <-- ADDED: Map contacts to {id, name} format -->
+      allContactsList = (allContactsData || []).map(user => ({
+          id: user.id,
+          name: `${user.first_name || ""} ${user.last_name || ""}`.trim() || `User ${user.id}` // Combine names or use fallback
+      }));
 
       // Log mapped data for verification
       logger.info("Mapped OOJ Infections:", oojInfectionList);
@@ -90,6 +98,7 @@
       logger.info("Mapped Methods of Transmission:", methodsOfTransmissionList);
       logger.info("Mapped Acceptable PIIs:", acceptablePiisData);
       logger.info("Mapped All Jurisdictions:", allJurisdictionList);
+      logger.info("Mapped All Contacts:", allContactsList); // <-- ADDED: Log contacts
       
       // Initialize the UI components
       initializeJurisdictionDropdown();
@@ -351,8 +360,13 @@ function formatExcelContacts(contactItems) {
                     oojActivities: { defaultValue: [], validation: { required: true, message:"Activity required"} },
                     methodsOfTransmitting: { defaultValue: [] },
                     acceptableForPiis: { defaultValue: [] },
-                    // Point of contacts stores array of contact IDs
-                    pointOfContacts: { defaultValue: [], validation: { required: true, message:"POC required"} }, // Changed to array
+                    // Point of contacts stores a single contact ID or null
+                    pointOfContacts: {
+                        type: "number",
+                        nullable: true,
+                        defaultValue: null,
+                        validation: { required: true, message:"POC required"}
+                    },
                     // Other fields
                     lastDateOfExposure: { type: "string" },
                     dispositionsReturned: { type: "string" },
@@ -450,23 +464,26 @@ function formatExcelContacts(contactItems) {
                             if (Array.isArray(topLevelValue)) return topLevelValue.map(id => parseInt(id, 10)).filter(id => !isNaN(id));
                             return [];
                         };
-                         // Helper to extract User IDs from embedded users or ACF field
-                        const getContactIds = () => {
-                             // Use the embedded user if available
-                            const embeddedUsers = embeddedData['acf:user']; // Check the key from your JSON
-                            if (embeddedUsers && Array.isArray(embeddedUsers) && embeddedUsers.length > 0) {
-                                 // Assuming the embedded user object has an 'id' property
-                                return embeddedUsers.map(u => u.id);
-                            }
-                             // Fallback to ACF field (point_of_contact seems to hold the user object now)
-                            const acfContact = acfData.point_of_contact;
-                             // Check if it's an object with an ID
-                            if (acfContact && typeof acfContact === 'object' && acfContact.ID) {
-                                 return [parseInt(acfContact.ID, 10)].filter(id => !isNaN(id));
-                            }
-                            // Fallback if it was just an ID (less likely based on JSON)
-                            if (acfContact) { const singleId = parseInt(acfContact, 10); return !isNaN(singleId) ? [singleId] : []; }
-                            return [];
+                         // Helper to extract single User ID or null
+                        const getContactIdOrNull = () => {
+                             const embeddedUsers = embeddedData['acf:user'];
+                             if (embeddedUsers && Array.isArray(embeddedUsers) && embeddedUsers.length > 0) {
+                                 const validUsers = embeddedUsers.filter(u => u && typeof u === 'object' && u.id && !u.code);
+                                 if (validUsers.length > 0) {
+                                     const firstId = parseInt(validUsers[0].id, 10);
+                                     return !isNaN(firstId) ? firstId : null; // Return first valid ID or null
+                                 }
+                             }
+                             const acfContact = acfData.point_of_contact;
+                             if (acfContact && typeof acfContact === 'object' && acfContact.ID) {
+                                 const parsedId = parseInt(acfContact.ID, 10);
+                                 return !isNaN(parsedId) ? parsedId : null;
+                             }
+                             if (acfContact && acfContact !== false) {
+                                 const singleId = parseInt(acfContact, 10);
+                                 return !isNaN(singleId) ? singleId : null;
+                             }
+                             return null; // Return null if no valid ID found
                         };
 
 
@@ -479,7 +496,7 @@ function formatExcelContacts(contactItems) {
                             oojActivities: getTermIds('acf-ooj-activity'),
                             methodsOfTransmitting: getTermIds('iccr_method-of-transmitting'),
                             acceptableForPiis: getTermIds('acceptable-for-pii'),
-                            pointOfContacts: getContactIds(), // Get array of contact IDs
+                            pointOfContacts: getContactIdOrNull(), // <-- MODIFIED: Get single ID or null
                             // Other ACF fields directly
                             lastDateOfExposure: acfData.last_date_of_exposure || "",
                             dispositionsReturned: acfData.dispositions_returned || "",
@@ -517,7 +534,7 @@ function formatExcelContacts(contactItems) {
      function createTaxonomyTemplate(fieldName, isMultiSelect = true) {
          return function(dataItem) {
              const ids = dataItem[fieldName]; // Expecting array of IDs
-             if (!ids || ids.length === 0) return '—';
+             if (!ids || ids.length === 0) return '';
 
              let lookupList;
              switch (fieldName) {
@@ -537,20 +554,13 @@ function formatExcelContacts(contactItems) {
 
      function createPointOfContactsTemplate() {
          return function(dataItem) {
-             const ids = dataItem.pointOfContacts; // Expecting array of IDs
-             if (!ids || ids.length === 0) return '—';
-
-             // Use allJurisdictionList to find user details (assuming it contains users, which it doesn't yet)
-             // *** THIS NEEDS ADJUSTMENT - contactsData is not globally fetched by default anymore ***
-             // For now, just display IDs until contact fetching is finalized
-             return ids.map(id => `Contact ID ${id}`).join(', ');
-             /*
-             return ids.map(id => {
-                 // Find the contact in a globally available list (e.g., fetched during init or on demand)
-                 const contact = contactsData.find(c => c.id === id); // Replace contactsData if needed
-                 return contact ? `${contact.first_name} ${contact.last_name}` : `ID ${id}`;
-             }).join(', ');
-             */
+             const contactId = dataItem.pointOfContacts; // Should be number or null
+             if (contactId !== null && contactId !== undefined) {
+                 // Use the globally fetched contact list
+                 const contact = allContactsList.find(c => c && c.id === contactId);
+                 return contact ? contact.name : "User Not Found. Email Support"; // Show name or custom message
+             }
+             return ''; // Return blank string if no contact ID
          };
      }
 
@@ -591,27 +601,19 @@ function formatExcelContacts(contactItems) {
      }
 
       function createPointOfContactsEditor(container, options) {
-         // *** This editor needs access to the list of contacts for the CURRENTLY selected jurisdiction ***
-         // It cannot reliably use a single global list anymore.
-         // Option 1: Pass the correct contact list dynamically (complex).
-         // Option 2: Fetch contacts within the editor (inefficient).
-         // Option 3 (Chosen): Use a placeholder and log a warning. Requires separate user management.
-
-         logger.warn("PointOfContactsEditor: Cannot dynamically determine correct contacts for the dropdown in this context. Displaying placeholder.");
-
-         $('<input name="' + options.field + '" disabled />') // Disable for now
+         $('<input required name="' + options.field + '" data-required-msg="Point of Contact is required"/>') // Added required
              .appendTo(container)
-             .kendoMultiSelect({
-                 placeholder: "Select Contacts (Requires User Mgmt)",
-                 dataSource: [], // Initially empty
-                 value: options.model.pointOfContacts || [],
-                 valuePrimitive: true
+             .kendoDropDownList({
+                 dataTextField: "name",
+                 dataValueField: "id",
+                 dataSource: allContactsList, // Use the globally fetched list
+                 optionLabel: "Select Contact...",
+                 value: options.model.pointOfContacts, // Should be the ID or null
+                 change: function(e) {
+                     // Set the model field to the selected numeric ID or null
+                     options.model.set(options.field, this.value() ? parseInt(this.value(), 10) : null);
+                 }
              });
-
-         // To make this work properly, the contactsData source for the MultiSelect
-         // would need to be updated whenever the grid's data source reads,
-         // ensuring it only shows contacts for the jurisdiction being edited.
-         // This is non-trivial with the current setup.
      }
 
     // GRID INITIALIZATION
@@ -624,6 +626,10 @@ function formatExcelContacts(contactItems) {
         pageable: false,
         toolbar: ["excel", "search"],
         search: { fields: [ /* Add relevant fields */ "jurisdictionName", "notes", "oojEmail" ] },
+        excel: {
+            fileName: "HIV-STI-OOJ Jurisdiction Export.xlsx",
+            allPages: true
+        },
         columns: [
              { field: "jurisdictionName", title: "Jurisdiction Name", width: 140 },
              { field: "oojInfections", title: "Infection", width: 140, template: createTaxonomyTemplate("oojInfections", false), editor: (c, o) => createSingleSelectEditor(c, o, {fieldName: "oojInfections", dataSource: oojInfectionList, placeholder: "Select..."}) },
@@ -660,66 +666,64 @@ function formatExcelContacts(contactItems) {
             // { command: ["edit", "destroy"], title: "&nbsp;", width: "180px" } // Add commands if needed
         ],
         excelExport: function (e) {
-            // Simplified Excel Export - Needs adjustment based on final data structure
             logger.info("Excel export triggered for OOJ Grid.");
-            var workbook = new kendo.ooxml.Workbook({
-                sheets: [{
-                    columns: [ // Define columns for export
-                        { autoWidth: true }, { autoWidth: true }, { autoWidth: true },
-                        { autoWidth: true }, { autoWidth: true }, { autoWidth: true },
-                        { autoWidth: true }, { autoWidth: true }, { autoWidth: true },
-                        { autoWidth: true }, { autoWidth: true }, { autoWidth: true }
-                    ],
-                    title: "OOJ Details",
-                    rows: [] // Placeholder - Rows need to be built manually
-                }]
-            });
+            var workbook = e.workbook; // <-- Use the workbook provided by Kendo
+            var sheet = workbook.sheets[0]; // <-- Get the first sheet
+
+            // Define the columns for the export explicitly for clarity
+            sheet.columns = [
+                { autoWidth: true }, { autoWidth: true }, { autoWidth: true },
+                { autoWidth: true }, { autoWidth: true }, { autoWidth: true },
+                { autoWidth: true }, { autoWidth: true }, { autoWidth: true },
+                { autoWidth: true }, { autoWidth: true }, { autoWidth: true }
+            ];
+
+            // Clear existing default rows and set the title
+            sheet.rows = [];
+            sheet.title = "OOJ Details";
 
             // Build header row
-             var headers = [
-                 "Jurisdiction Name", "OOJ Infections", "OOJ Activities",
-                 "Last Date of Exposure", "Dispositions Returned",
-                 "Methods of Transmitting", "Acceptable for PIIs",
-                 "Phone", "Fax", "Email",
-                 "Point of Contacts", "Notes"
-             ];
+            var headers = [
+                "Jurisdiction Name", "OOJ Infections", "OOJ Activities",
+                "Last Date of Exposure", "Dispositions Returned",
+                "Methods of Transmitting", "Acceptable for PIIs",
+                "Phone", "Fax", "Email",
+                "Point of Contacts", "Notes"
+            ];
             var headerRow = { cells: headers.map(h => ({ value: h, background: "#7a7a7a", color: "#ffffff", bold: true })) };
-            workbook.sheets[0].rows.push(headerRow);
+            sheet.rows.push(headerRow); // <-- Add header to the sheet's rows
 
-             // Manually build data rows using templates/lookup functions
-             var gridData = e.sender.dataSource.view(); // Use view() to get current page/filtered data
-             var infectionTemplateFn = createTaxonomyTemplate("oojInfections", false);
-             var activityTemplateFn = createTaxonomyTemplate("oojActivities");
-             var methodsTemplateFn = createTaxonomyTemplate("methodsOfTransmitting");
-             var piiTemplateFn = createTaxonomyTemplate("acceptableForPiis");
-             var pocTemplateFn = createPointOfContactsTemplate(); // Uses placeholder currently
+            // Manually build data rows using templates/lookup functions
+            var gridData = e.sender.dataSource.view(); // Use view() to get current page/filtered data
+            var infectionTemplateFn = createTaxonomyTemplate("oojInfections", false);
+            var activityTemplateFn = createTaxonomyTemplate("oojActivities");
+            var methodsTemplateFn = createTaxonomyTemplate("methodsOfTransmitting");
+            var piiTemplateFn = createTaxonomyTemplate("acceptableForPiis");
+            var pocTemplateFn = createPointOfContactsTemplate(); // Uses placeholder currently
 
-             gridData.forEach(dataItem => {
-                 var dataRow = {
-                     cells: [
-                         { value: dataItem.jurisdictionName || "" },
-                         { value: infectionTemplateFn(dataItem) },
-                         { value: activityTemplateFn(dataItem) },
-                         { value: dataItem.lastDateOfExposure || "" },
-                         { value: dataItem.dispositionsReturned || "" },
-                         { value: methodsTemplateFn(dataItem) },
-                         { value: piiTemplateFn(dataItem) },
-                         { value: formatPhoneTemplate(dataItem, "oojPhone") }, // Use template helper
-                         { value: formatPhoneTemplate(dataItem, "oojFax") }, // Use template helper
-                         { value: dataItem.oojEmail || "" },
-                         { value: pocTemplateFn(dataItem) }, // Uses placeholder currently
-                         { value: dataItem.notes || "" }
-                     ]
-                 };
-                 workbook.sheets[0].rows.push(dataRow);
-             });
-
-
-            kendo.saveAs({
-                dataURI: workbook.toDataURL(),
-                fileName: "OOJ_Details_Export.xlsx"
+            gridData.forEach(dataItem => {
+                var dataRow = {
+                    cells: [
+                        { value: dataItem.jurisdictionName || "" },
+                        { value: infectionTemplateFn(dataItem) },
+                        { value: activityTemplateFn(dataItem) },
+                        { value: dataItem.lastDateOfExposure || "" },
+                        { value: dataItem.dispositionsReturned || "" },
+                        { value: methodsTemplateFn(dataItem) },
+                        { value: piiTemplateFn(dataItem) },
+                        { value: formatPhoneTemplate(dataItem, "oojPhone") }, // Use template helper
+                        { value: formatPhoneTemplate(dataItem, "oojFax") }, // Use template helper
+                        { value: dataItem.oojEmail || "" },
+                        { value: pocTemplateFn(dataItem) }, // Uses placeholder currently
+                        { value: dataItem.notes || "" }
+                    ]
+                };
+                sheet.rows.push(dataRow); // <-- Add data row to the sheet's rows
             });
-            e.preventDefault(); // Prevent default export
+
+            // REMOVED: kendo.saveAs() and e.preventDefault()
+            // Kendo will handle the download automatically after this function finishes
+            logger.info("OOJ Grid Excel export customized using e.workbook.");
        }
     }).data("kendoGrid");
 
@@ -866,7 +870,7 @@ function initializeContactGrid() {
       scrollable: true,  // Enable scrolling
       height: 500,       // Set a fixed height (adjust px value as needed for ~10 rows)
       excel: {
-        fileName: "STD_Contact_Board_Export.xlsx",
+        fileName: "HIV-STI-OOJ Contact Export.xlsx",
         allPages: true // Export all data loaded by the DataSource
       },
       columns: [
