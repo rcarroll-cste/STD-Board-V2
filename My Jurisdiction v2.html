@@ -425,29 +425,6 @@ $(document).ready(function () {
                         return JSON.stringify(createPayload);
                     }
                     return options;
-                },
-                requestEnd: function(e) {
-                     console.log(">>> usersDataSource.requestEnd: Fired. Event Type:", e.type, "Response:", e.response);
-                    if (e.type === "create" || e.type === "update" || e.type === "destroy") {
-                        let isSuccess = false;
-                        if (e.type === "destroy") {
-                            isSuccess = e.response && !e.response.error && !e.response.code && !e.response.message;
-                            console.log(`>>> usersDataSource.requestEnd: Destroy operation detected. Assuming success: ${isSuccess}`);
-                        } else {
-                            const hasError = e.response && (e.response.error || e.response.code || e.response.message);
-                            isSuccess = !hasError;
-                            console.log(`>>> usersDataSource.requestEnd: Create/Update operation detected. Error check result (hasError): ${hasError}, Success: ${isSuccess}`);
-                        }
-
-                        if (isSuccess) {
-                             console.log(`>>> usersDataSource.requestEnd: User Grid ${e.type} successful. Calling refreshContactsAndOojGrid.`);
-                             refreshContactsAndOojGrid(jurisdictionId);
-                        } else {
-                             console.warn(`>>> usersDataSource.requestEnd: User Grid ${e.type} requestEnd fired, but operation deemed unsuccessful or had errors. Not refreshing OOJ Grid.`, e.response);
-                        }
-                    } else {
-                        console.log(`>>> usersDataSource.requestEnd: Event type is ${e.type}. No refresh needed.`);
-                    }
                 }
             },
             schema: {
@@ -505,12 +482,12 @@ $(document).ready(function () {
                          console.log(">>> usersDataSource.schema.parse: Processing single object response.");
                           if (!response.acf) {
                             response.acf = { user_phone: "", user_fax: "", notes_sti_hiv: "", hiv_role: [], sti_role: [] };
-                         } else {
-                             if (!Array.isArray(response.acf.hiv_role)) response.acf.hiv_role = [];
-                             if (!Array.isArray(response.acf.sti_role)) response.acf.sti_role = [];
-                         }
-                         processedResponse = response;
-                    } else if (e.type === 'destroy' && response && response.deleted === true) {
+                          } else {
+                              if (!Array.isArray(response.acf.hiv_role)) response.acf.hiv_role = [];
+                              if (!Array.isArray(response.acf.sti_role)) response.acf.sti_role = [];
+                          }
+                          processedResponse = response;
+                    } else if (operation === 'destroy' && response && response.deleted === true) {
                         console.log(">>> usersDataSource.schema.parse: Processing successful DELETE response.");
                         processedResponse = response;
                     } else {
@@ -537,7 +514,7 @@ $(document).ready(function () {
 
         });
 
-        $("#userGrid").kendoGrid({ // <-- Corrected grid ID selector
+        $("#userGrid").kendoGrid({
             dataSource: usersDataSource,
             pageable: false,
             scrollable: true,
@@ -640,7 +617,21 @@ $(document).ready(function () {
              editable: {
                 mode: "popup",
                 window: { title: "Add/Edit Contact" }
-            }
+            },
+            save: function(e) {
+                 console.log(">>> userGrid SAVE event fired. Model:", e.model);
+                 setTimeout(function() {
+                     console.log(">>> userGrid SAVE: Calling refreshContactsAndOojGrid after delay.");
+                     refreshContactsAndOojGrid(jurisdictionId);
+                 }, 500);
+            },
+             remove: function(e) {
+                 console.log(">>> userGrid REMOVE event fired. Model:", e.model);
+                 setTimeout(function() {
+                     console.log(">>> userGrid REMOVE: Calling refreshContactsAndOojGrid after delay.");
+                     refreshContactsAndOojGrid(jurisdictionId);
+                 }, 500);
+             }
         });
 
     }
@@ -648,11 +639,14 @@ $(document).ready(function () {
     function initializeOOJGrid(jurisdictionId) {
         var stdBaseUrl = "https://hivstiooj.cste.org/wp-json/wp/v2";
 
-        // --- Tooltip content mapping ---
+        // --- Tooltip content mapping (ONLY for required fields) ---
         const fieldTooltips = {
             lastDateOfExposure: "Timeframe within which a partner/contact's exposure to an infection is eligible for investigation (e.g. syphilis exposure that occurred within the past 90 days). Complete this when the Activity is Partner Services: Partner/Contact.",
             dispositionsReturned: "Indicate if/when you will return a disposition or information for requested activities.",
+            acceptableForPiis: "Personally Identifiable Information. Please only transmit confidential patient information via one of these designated methods."
+            // REMOVED: oojPhone, oojFax, oojEmail, notes
         };
+        console.log(">>> OOJ Grid Init: Main fieldTooltips map (Limited):", fieldTooltips); // LOG 1
         // --- End Tooltip content mapping ---
 
         // --- Filter contacts for the current jurisdiction ---
@@ -737,9 +731,9 @@ $(document).ready(function () {
                                 dispositions_returned: options.dispositionsReturned || "",
                                 accept_and_investigate: options.acceptAndInvestigate || "",
                                 notes: options.notes || "",
-                                ooj_phone: options.oojPhone != null ? String(options.oojPhone) : "",
-                                ooj_fax: options.oojFax != null ? String(options.oojFax) : "",
-                                ooj_email: options.oojEmail || ""
+                                ooj_phone: (options.oojPhone === null || options.oojPhone === undefined || options.oojPhone === "") ? null : String(options.oojPhone),
+                                ooj_fax: (options.oojFax === null || options.oojFax === undefined || options.oojFax === "") ? null : String(options.oojFax),
+                                ooj_email: (options.oojEmail === null || options.oojEmail === undefined || options.oojEmail === "") ? null : options.oojEmail
                             },
                             // Standard WP taxonomy field
                             "iccr_method-of-transmitting": methodsIds
@@ -969,6 +963,8 @@ $(document).ready(function () {
                     field: "acceptableForPiis",
                     title: "Acceptable for PII",
                     template: createTaxonomyTemplate("acceptableForPiis"),
+                    headerTemplate: "Acceptable for PII <span class='header-tooltip-icon'>&#9432;</span>",
+                    headerAttributes: { "data-tooltip-content": fieldTooltips.acceptableForPiis },
                     editor: function(container, options) {
                         createMultiSelectEditor(container, options, {
                             fieldName: "acceptableForPiis",
@@ -980,7 +976,6 @@ $(document).ready(function () {
                 {
                     field: "oojPhone",
                     title: "Phone",
-                    headerAttributes: { "data-tooltip-content": fieldTooltips.oojPhone },
                     template: function(dataItem) {
                         const rawValue = dataItem.oojPhone;
                         if (typeof rawValue === 'string' || typeof rawValue === 'number') {
@@ -996,7 +991,6 @@ $(document).ready(function () {
                 {
                     field: "oojFax",
                     title: "Fax",
-                    headerAttributes: { "data-tooltip-content": fieldTooltips.oojFax },
                     template: function(dataItem) {
                         const rawValue = dataItem.oojFax;
                         if (typeof rawValue === 'string' || typeof rawValue === 'number') {
@@ -1012,7 +1006,6 @@ $(document).ready(function () {
                 {
                     field: "oojEmail",
                     title: "Email",
-                    headerAttributes: { "data-tooltip-content": fieldTooltips.oojEmail },
                 },
                 {
                     field: "pointOfContacts",
@@ -1022,8 +1015,6 @@ $(document).ready(function () {
                 },
                 {
                     field: "notes",
-                    title: "Notes",
-                    headerAttributes: { "data-tooltip-content": fieldTooltips.notes },
                     editor: function(container, options) {
                         $('<textarea data-bind="value:' + options.field + '" style="width: 100%;"></textarea>')
                             .appendTo(container)
@@ -1040,54 +1031,74 @@ $(document).ready(function () {
                 console.log("OOJ Grid save event. Model validation should occur.", e.model);
             },
             edit: function(e) {
-                var container = e.container; // The popup window container
+                var container = e.container;
                 container.addClass("ooj-popup-editor");
+                console.log(">>> OOJ Grid Edit Event: Popup container:", container);
 
-                // --- Define tooltips specifically for the popup ---
+                // Define tooltips specifically for the popup (Uses the limited fieldTooltips)
                 const popupTooltips = {
-                     lastDateOfExposure: fieldTooltips.lastDateOfExposure, // Reuse text from main map
-                     dispositionsReturned: fieldTooltips.dispositionsReturned // Reuse text from main map
-                     // Only include fields that should have tooltips in the popup
+                     lastDateOfExposure: fieldTooltips.lastDateOfExposure,
+                     dispositionsReturned: fieldTooltips.dispositionsReturned,
+                     acceptableForPiis: fieldTooltips.acceptableForPiis
                 };
-                // --- End popup specific tooltips ---
+                console.log(">>> OOJ Grid Edit Event: popupTooltips map:", popupTooltips); // LOG 2
 
                 // Iterate ONLY through the fields needed for the popup
-                for (const fieldName in popupTooltips) { // <-- **** Use popupTooltips here ****
+                for (const fieldName in popupTooltips) {
                     if (popupTooltips.hasOwnProperty(fieldName)) {
+                        const tooltipText = popupTooltips[fieldName];
+                        console.log(`>>> OOJ Grid Edit Event: Processing field '${fieldName}'. Label lookup next. Tooltip text: "${tooltipText}"`); // LOG 3
+
                         var label = container.find("label[for='" + fieldName + "']");
                         if (label.length > 0) {
-                            // Create the tooltip icon span WITH the title attribute
-                            var tooltipIcon = $('<span class="popup-tooltip-icon" title="' + popupTooltips[fieldName] + '">&#9432;</span>');
+                            console.log(`>>> OOJ Grid Edit Event: Found label for '${fieldName}':`, label[0]); // LOG 4
+
+                            // Use data-tooltip-text
+                            var tooltipIcon = $('<span class="popup-tooltip-icon" data-tooltip-text="' + tooltipText + '">&#9432;</span>');
+
+                            console.log(`>>> OOJ Grid Edit Event: Created tooltip icon for '${fieldName}':`, tooltipIcon[0]); // LOG 5
+                            console.log(`>>> OOJ Grid Edit Event: Icon's data-tooltip-text attribute: "${tooltipIcon.attr('data-tooltip-text')}"`);
+
                             label.append(tooltipIcon);
                         } else {
-                             console.warn("Could not find label for field:", fieldName, "in popup editor.");
+                             console.warn(`>>> OOJ Grid Edit Event: Could not find label for field '${fieldName}' in popup editor.`);
                         }
                     }
                 }
 
                  // Initialize Kendo Tooltip for the icons within this specific popup
+                 console.log(">>> OOJ Grid Edit Event: Initializing kendoTooltip on container for filter '.popup-tooltip-icon'"); // Log before init
                  container.kendoTooltip({
-                     filter: ".popup-tooltip-icon", // Target only our icons
+                     filter: ".popup-tooltip-icon",
                      position: "right",
-                     content: function(e) {
-                         // Retrieve content from the icon's title attribute
-                         var content = $(e.target).attr("title");
-                         console.log("Tooltip hover on:", e.target, "Title:", content); // Debugging log
-                         return content || ""; // Return empty string if title is missing
+                     content: function(tooltipEvent) {
+                         var targetElement = $(tooltipEvent.target);
+                         var content = targetElement.attr("data-tooltip-text");
+                         console.log(">>> kendoTooltip Content Fn: Hover on target:", targetElement[0]); // LOG 6
+                         console.log(`>>> kendoTooltip Content Fn: Retrieved data-tooltip-text attribute: "${content}"`);
+                         return content || "";
                      },
-                     width: 200, // Adjust width as needed
-                     showAfter: 500 // Delay before showing
+                     show: function(tooltipEvent) {
+                        var targetElement = $(tooltipEvent.target);
+                        console.log(">>> kendoTooltip Show Fn: Tooltip shown for element:", targetElement[0]); // LOG 7
+                        console.log(`>>> kendoTooltip Show Fn: Element's data-tooltip-text attr: "${targetElement.attr('data-tooltip-text')}"`);
+                     },
+                     width: 200,
+                     showAfter: 500
                  });
+                 console.log(">>> OOJ Grid Edit Event: kendoTooltip initialization complete."); // Log after init
             }
         });
 
-        // Initialize header tooltips (keep this)
+        // Initialize header tooltips (Still needed for the columns that DO have the icon/attributes)
         $("#OojGrid .k-grid-header").kendoTooltip({
-            filter: ".header-tooltip-icon",
+            filter: ".header-tooltip-icon", // Will only match the 3 columns now
             position: "bottom",
             content: function(e) {
                 var th = $(e.target).closest('th');
-                var tooltipContent = th.data("tooltip-content") || th.find('.header-tooltip-icon').parent().attr('data-tooltip-content'); // Check parent if needed
+                // Read from data-tooltip-content which is set in headerAttributes
+                var tooltipContent = th.data("tooltip-content") || $(e.target).parent().data("tooltip-content");
+                console.log("Header Tooltip Hover:", e.target, "Content:", tooltipContent); // Optional log
                 return tooltipContent || "No description";
             },
             width: 200,
@@ -1095,14 +1106,13 @@ $(document).ready(function () {
         });
 
         // --- Add some basic CSS for the new popup icon ---
-        // You might want to put this in your main <style> block
         if ($('#popup-tooltip-styles').length === 0) {
              $('<style id="popup-tooltip-styles">' +
                '.ooj-popup-editor label .popup-tooltip-icon {' +
                  ' margin-left: 5px;' +
                  ' cursor: help;' +
                  ' font-style: normal;' +
-                 ' color: #428bca;' + /* Bootstrap info blue */
+                 ' color: #428bca;' +
                  ' font-size: 0.9em;' +
                '}' +
              '</style>').appendTo('head');

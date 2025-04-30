@@ -213,7 +213,7 @@ function formatExcelContacts(contactItems) {
       },
       columns: [
         {field: "title", title: "Jurisdiction Name"},
-        {field: "fips_code", title: "FIPS Code"},
+        // {field: "fips_code", title: "FIPS Code"}, // <-- REMOVED
         {field: "agency_name", title: "Agency Name"},
         {field: "address_jurisdiction", title: "Agency Address"},
         {field: "phone_jurisdiction", title: "Agency Phone"},
@@ -257,29 +257,12 @@ function formatExcelContacts(contactItems) {
             },
             read: {
                url: function() {
+                   // ALWAYS fetch ALL OOJ Details since server-side filtering isn't working
                    const baseUrl = stdBaseUrl + "/ooj-detail";
                    const embedParams = "_embed&per_page=3000&acf_format=standard"; // Use max limit, request ACF
-
-                   if (selectedJurisdictionId && selectedJurisdictionId !== "ALL") {
-                       const jurisdictionId = parseInt(selectedJurisdictionId, 10);
-                       if (!isNaN(jurisdictionId)) {
-                           // Filter by the ACF field holding the jurisdiction relationship
-                           const specificUrl = `${baseUrl}?acf_jurisdiction_selection=${jurisdictionId}&${embedParams}`;
-                           logger.info(`OOJ Grid: Reading specific jurisdiction ID: ${jurisdictionId} via URL: ${specificUrl}`);
-                           return specificUrl;
-                       } else {
-                           logger.warn(`OOJ Grid: Invalid non-numeric jurisdiction ID selected: ${selectedJurisdictionId}. Reading ALL.`);
-                           const allUrl = `${baseUrl}?${embedParams}`;
-                           return allUrl;
-                       }
-                   } else if (selectedJurisdictionId === "ALL") {
-                       const allUrl = `${baseUrl}?${embedParams}`;
-                       logger.info(`OOJ Grid: Reading ALL jurisdictions via URL: ${allUrl}`);
-                       return allUrl;
-                   } else {
-                       logger.warn("OOJ Grid: transport.read.url called with no valid jurisdiction selected. Returning null.");
-                       return null; // Prevent load if nothing selected
-                   }
+                   const allUrl = `${baseUrl}?${embedParams}`;
+                   logger.info(`OOJ Grid: Reading ALL jurisdictions via URL (filtering done client-side): ${allUrl}`);
+                   return allUrl;
                },
                type: "GET",
                dataType: "json",
@@ -383,10 +366,36 @@ function formatExcelContacts(contactItems) {
             parse: function(response) {
                 logger.info('OOJ Grid Parse (REST): Starting. Received response:', response);
                 let dataToProcess = [];
-                if (Array.isArray(response)) { dataToProcess = response; }
-                else if (response && typeof response === 'object' && response.id) { dataToProcess = [response]; }
-                else { logger.warn('OOJ Grid Parse: Response is not an array or valid object:', response); return []; }
+                if (Array.isArray(response)) {
+                    dataToProcess = response;
+                } else if (response && typeof response === 'object' && response.id) {
+                    dataToProcess = [response];
+                } else {
+                    logger.warn('OOJ Grid Parse: Response is not an array or valid object:', response);
+                    return [];
+                }
 
+                // <<< --- START: Client-Side Filtering --- >>>
+                if (selectedJurisdictionId && selectedJurisdictionId !== "ALL") {
+                    const numericSelectedId = parseInt(selectedJurisdictionId, 10);
+                    if (!isNaN(numericSelectedId)) {
+                        logger.info(`OOJ Grid Parse: Filtering client-side for Jurisdiction ID: ${numericSelectedId}`);
+                        dataToProcess = dataToProcess.filter(item => {
+                            const itemJurisdictionId = item?.acf?.jurisdiction_selection?.ID;
+                            // Keep item only if its jurisdiction ID matches the selected one
+                            return itemJurisdictionId === numericSelectedId;
+                        });
+                        logger.info(`OOJ Grid Parse: Filtered down to ${dataToProcess.length} items.`);
+                    } else {
+                         logger.warn(`OOJ Grid Parse: Cannot filter client-side due to invalid selectedJurisdictionId: ${selectedJurisdictionId}`);
+                    }
+                } else {
+                    logger.info(`OOJ Grid Parse: No client-side filtering needed (ALL or no selection). Processing ${dataToProcess.length} items.`);
+                }
+                // <<< --- END: Client-Side Filtering --- >>>
+
+
+                // Proceed with mapping the (potentially filtered) data
                 try {
                     return dataToProcess.map((item) => {
                         // logger.info(`\nOOJ Grid Parse: Processing item ID: ${item.id}`);
@@ -398,20 +407,19 @@ function formatExcelContacts(contactItems) {
 
                          // --- Jurisdiction Name Lookup ---
                         let jurisdictionId = null;
-                        // Check ACF field first (assuming it returns an object with ID and post_title when embedded, or just ID otherwise)
-                        const jurSelection = acfData.jurisdiction_selection; // Adjust field name if needed
+                        // Check ACF field first
+                        const jurSelection = acfData.jurisdiction_selection;
                         if (jurSelection && typeof jurSelection === 'object' && jurSelection.ID && typeof jurSelection.post_title === 'string') {
-                            jurisdictionId = parseInt(jurSelection.ID, 10);
+                            jurisdictionId = parseInt(jurSelection.ID, 10); // Make sure to parse ID here
                             jurisdictionName = jurSelection.post_title;
                             // logger.info(`OOJ Grid Parse: Item ${item.id} - Found jurisdiction in ACF object: "${jurisdictionName}" (ID: ${jurisdictionId})`);
                         } else if (jurSelection !== null && jurSelection !== undefined && jurSelection !== '') {
-                            // If it's just an ID in ACF
+                            // Handle case where jurisdiction_selection might just be an ID (less likely with _embed)
                             const parsedId = parseInt(jurSelection, 10);
-                                if (!isNaN(parsedId)) {
-                                    jurisdictionId = parsedId;
+                            if (!isNaN(parsedId)) {
+                                jurisdictionId = parsedId;
                                 // logger.info(`OOJ Grid Parse: Item ${item.id} - Parsed jurisdiction ID from ACF: ${jurisdictionId}. Looking up name.`);
-                                // Fallback to global list
-                            const jurisdiction = allJurisdictionList.find(j => j && parseInt(j.id, 10) === jurisdictionId);
+                                const jurisdiction = allJurisdictionList.find(j => j && parseInt(j.id, 10) === jurisdictionId);
                                 if (jurisdiction && jurisdiction.title && typeof jurisdiction.title.rendered === 'string') {
                                     jurisdictionName = jurisdiction.title.rendered;
                                     // logger.info(`OOJ Grid Parse: Item ${item.id} - Found name in global list: "${jurisdictionName}"`);
@@ -437,20 +445,28 @@ function formatExcelContacts(contactItems) {
                             const acfValue = acfData[taxonomySlug.replace(/-/g, '_')]; // Basic slug to ACF key guess
                             if (Array.isArray(acfValue)) return acfValue.map(id => parseInt(id, 10)).filter(id => !isNaN(id));
                             if (acfValue) { const singleId = parseInt(acfValue, 10); return !isNaN(singleId) ? [singleId] : []; }
+                            // Fallback to top-level if ACF fails (less common for taxonomies)
+                            const topLevelValue = item[taxonomySlug];
+                            if (Array.isArray(topLevelValue)) return topLevelValue.map(id => parseInt(id, 10)).filter(id => !isNaN(id));
                             return [];
                         };
                          // Helper to extract User IDs from embedded users or ACF field
                         const getContactIds = () => {
-                             // Prefer embedded users if available (check common embedded keys)
-                             const embeddedUsers = embeddedData['acf:user'] || embeddedData['authors'] || (Array.isArray(embeddedData['up:user']) ? embeddedData['up:user'] : null) ;
-                             if (embeddedUsers && Array.isArray(embeddedUsers) && embeddedUsers.length > 0) {
-                                 return embeddedUsers.map(u => u.id);
-                             }
-                             // Fallback to ACF field
-                             const acfContacts = acfData.point_of_contacts; // Adjust field name if needed
-                             if (Array.isArray(acfContacts)) return acfContacts.map(id => parseInt(id, 10)).filter(id => !isNaN(id));
-                             if (acfContacts) { const singleId = parseInt(acfContacts, 10); return !isNaN(singleId) ? [singleId] : []; }
-                             return [];
+                             // Use the embedded user if available
+                            const embeddedUsers = embeddedData['acf:user']; // Check the key from your JSON
+                            if (embeddedUsers && Array.isArray(embeddedUsers) && embeddedUsers.length > 0) {
+                                 // Assuming the embedded user object has an 'id' property
+                                return embeddedUsers.map(u => u.id);
+                            }
+                             // Fallback to ACF field (point_of_contact seems to hold the user object now)
+                            const acfContact = acfData.point_of_contact;
+                             // Check if it's an object with an ID
+                            if (acfContact && typeof acfContact === 'object' && acfContact.ID) {
+                                 return [parseInt(acfContact.ID, 10)].filter(id => !isNaN(id));
+                            }
+                            // Fallback if it was just an ID (less likely based on JSON)
+                            if (acfContact) { const singleId = parseInt(acfContact, 10); return !isNaN(singleId) ? [singleId] : []; }
+                            return [];
                         };
 
 
@@ -612,10 +628,30 @@ function formatExcelContacts(contactItems) {
              { field: "jurisdictionName", title: "Jurisdiction Name", width: 140 },
              { field: "oojInfections", title: "Infection", width: 140, template: createTaxonomyTemplate("oojInfections", false), editor: (c, o) => createSingleSelectEditor(c, o, {fieldName: "oojInfections", dataSource: oojInfectionList, placeholder: "Select..."}) },
              { field: "oojActivities", title: "Activity", width: 140, template: createTaxonomyTemplate("oojActivities"), editor: (c, o) => createMultiSelectEditor(c, o, {fieldName: "oojActivities", dataSource: oojActivityList, placeholder: "Select..."}) },
-             { field: "lastDateOfExposure", title: "Last Date of Exposure", width: 140 /*, headerTemplate/Attributes if tooltip needed */ },
-             { field: "dispositionsReturned", title: "Dispo/Info Returned", width: 140 /*, headerTemplate/Attributes if tooltip needed */ },
+             {
+                 field: "lastDateOfExposure",
+                 title: "Last Date of Exposure",
+                 width: 140,
+                 headerTemplate: "Last Date of Exposure <span class='header-tooltip-icon'>&#9432;</span>",
+                 headerAttributes: { "data-tooltip-content": "Timeframe within which a partner/contact's exposure to an infection is eligible for investigation (e.g. syphilis exposure that occurred within the past 90 days). Complete this when the Activity is Partner Services: Partner/Contact." }
+             },
+             {
+                 field: "dispositionsReturned",
+                 title: "Dispo/Info Returned",
+                 width: 140,
+                 headerTemplate: "Dispo/Info Returned <span class='header-tooltip-icon'>&#9432;</span>",
+                 headerAttributes: { "data-tooltip-content": "Indicate if/when you will return a disposition or information for requested activities." }
+             },
              { field: "methodsOfTransmitting", title: "Method(s) of Transmitting", width: 140, template: createTaxonomyTemplate("methodsOfTransmitting"), editor: (c, o) => createMultiSelectEditor(c, o, {fieldName: "methodsOfTransmitting", dataSource: methodsOfTransmissionList, placeholder: "Select..."}) },
-             { field: "acceptableForPiis", title: "Acceptable for PIIs", width: 140, template: createTaxonomyTemplate("acceptableForPiis"), editor: (c, o) => createMultiSelectEditor(c, o, {fieldName: "acceptableForPiis", dataSource: acceptablePiisData, placeholder: "Select..."}) },
+             {
+                 field: "acceptableForPiis",
+                 title: "Acceptable for PIIs",
+                 width: 140,
+                 template: createTaxonomyTemplate("acceptableForPiis"),
+                 headerTemplate: "Acceptable for PIIs <span class='header-tooltip-icon'>&#9432;</span>",
+                 headerAttributes: { "data-tooltip-content": "Personally Identifiable Information. Please only transmit confidential patient information via one of these designated methods." },
+                 editor: (c, o) => createMultiSelectEditor(c, o, {fieldName: "acceptableForPiis", dataSource: acceptablePiisData, placeholder: "Select..."})
+             },
              { field: "oojPhone", title: "Phone", width: 140, template: formatPhoneTemplate },
              { field: "oojFax", title: "Fax", width: 140, template: formatPhoneTemplate },
              { field: "oojEmail", title: "Email", width: 140 },
@@ -686,6 +722,22 @@ function formatExcelContacts(contactItems) {
             e.preventDefault(); // Prevent default export
        }
     }).data("kendoGrid");
+
+    // --- ADD TOOLTIP INITIALIZATION FOR HEADERS ---
+    $("#oojJurisdictionGrid .k-grid-header").kendoTooltip({
+        filter: ".header-tooltip-icon", // Match only the icons in headers
+        position: "bottom",
+        content: function(e) {
+            var th = $(e.target).closest('th');
+            // Read from data-tooltip-content set in headerAttributes
+            var tooltipContent = th.data("tooltip-content") || $(e.target).parent().data("tooltip-content");
+            logger.info("Header Tooltip Hover:", e.target, "Content:", tooltipContent); // Optional log
+            return tooltipContent || "No description";
+        },
+        width: 200,
+        showAfter: 750 // Delay before showing
+    });
+    // --- END TOOLTIP INITIALIZATION ---
 
     logger.info('OOJ Grid Initialized (REST).');
 } // End initializeOojGrid
