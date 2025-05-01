@@ -658,8 +658,24 @@ function formatExcelContacts(contactItems) {
                  headerAttributes: { "data-tooltip-content": "Personally Identifiable Information. Please only transmit confidential patient information via one of these designated methods." },
                  editor: (c, o) => createMultiSelectEditor(c, o, {fieldName: "acceptableForPiis", dataSource: acceptablePiisData, placeholder: "Select..."})
              },
-             { field: "oojPhone", title: "Phone", width: 140, template: formatPhoneTemplate },
-             { field: "oojFax", title: "Fax", width: 140, template: formatPhoneTemplate },
+             {
+                 field: "oojPhone",
+                 title: "Phone",
+                 width: 140,
+                 template: function(dataItem) {
+                     // REMOVED DEBUG LOGS
+                     return formatPhoneTemplate(dataItem.oojPhone);
+                 }
+             },
+             {
+                 field: "oojFax",
+                 title: "Fax",
+                 width: 140,
+                 template: function(dataItem) {
+                     // REMOVED DEBUG LOGS
+                     return formatPhoneTemplate(dataItem.oojFax);
+                 }
+             },
              { field: "oojEmail", title: "Email", width: 140 },
              { field: "pointOfContacts", title: "Point of Contact", width: 140, template: createPointOfContactsTemplate(), editor: createPointOfContactsEditor },
              { field: "notes", title: "Notes", width: 140 }
@@ -667,8 +683,8 @@ function formatExcelContacts(contactItems) {
         ],
         excelExport: function (e) {
             logger.info("Excel export triggered for OOJ Grid.");
-            var workbook = e.workbook; // <-- Use the workbook provided by Kendo
-            var sheet = workbook.sheets[0]; // <-- Get the first sheet
+            var workbook = e.workbook;
+            var sheet = workbook.sheets[0];
 
             // Define the columns for the export explicitly for clarity
             sheet.columns = [
@@ -693,13 +709,12 @@ function formatExcelContacts(contactItems) {
             var headerRow = { cells: headers.map(h => ({ value: h, background: "#7a7a7a", color: "#ffffff", bold: true })) };
             sheet.rows.push(headerRow); // <-- Add header to the sheet's rows
 
-            // Manually build data rows using templates/lookup functions
-            var gridData = e.sender.dataSource.view(); // Use view() to get current page/filtered data
+            var gridData = e.sender.dataSource.view();
             var infectionTemplateFn = createTaxonomyTemplate("oojInfections", false);
             var activityTemplateFn = createTaxonomyTemplate("oojActivities");
             var methodsTemplateFn = createTaxonomyTemplate("methodsOfTransmitting");
             var piiTemplateFn = createTaxonomyTemplate("acceptableForPiis");
-            var pocTemplateFn = createPointOfContactsTemplate(); // Uses placeholder currently
+            var pocTemplateFn = createPointOfContactsTemplate();
 
             gridData.forEach(dataItem => {
                 var dataRow = {
@@ -711,18 +726,16 @@ function formatExcelContacts(contactItems) {
                         { value: dataItem.dispositionsReturned || "" },
                         { value: methodsTemplateFn(dataItem) },
                         { value: piiTemplateFn(dataItem) },
-                        { value: formatPhoneTemplate(dataItem, "oojPhone") }, // Use template helper
-                        { value: formatPhoneTemplate(dataItem, "oojFax") }, // Use template helper
+                        { value: formatPhoneTemplate(dataItem.oojPhone) },
+                        { value: formatPhoneTemplate(dataItem.oojFax) },
                         { value: dataItem.oojEmail || "" },
-                        { value: pocTemplateFn(dataItem) }, // Uses placeholder currently
+                        { value: pocTemplateFn(dataItem) },
                         { value: dataItem.notes || "" }
                     ]
                 };
-                sheet.rows.push(dataRow); // <-- Add data row to the sheet's rows
+                sheet.rows.push(dataRow);
             });
 
-            // REMOVED: kendo.saveAs() and e.preventDefault()
-            // Kendo will handle the download automatically after this function finishes
             logger.info("OOJ Grid Excel export customized using e.workbook.");
        }
     }).data("kendoGrid");
@@ -885,17 +898,14 @@ function initializeContactGrid() {
         { field: "first_name", title: "First Name", width: 140 },
         { field: "last_name", title: "Last Name", width: 140 },
         { field: "email", title: "Email", width: 140 },
-        { field: "acf.user_phone", title: "Phone", width: 140, template: formatPhoneTemplate },
-        { field: "acf.user_fax", title: "Fax", width: 140, template: formatPhoneTemplate },
+        { field: "acf.user_phone", title: "Phone", width: 140, template: function(dataItem) { return formatPhoneTemplate(dataItem.acf?.user_phone); } },
+        { field: "acf.user_fax", title: "Fax", width: 140, template: function(dataItem) { return formatPhoneTemplate(dataItem.acf?.user_fax); } },
         { field: "acf.hiv_role", title: "HIV Roles", width: 140, template: formatRolesTemplate('hiv_role'), exportable: { text: true } },
         { field: "acf.sti_role", title: "STI Roles", width: 140, template: formatRolesTemplate('sti_role'), exportable: { text: true } },
         { field: "acf.notes_sti_hiv", title: "Notes", width: 140 },
       ],
       excelExport: function (e) {
-          // Use a similar manual export building process as OOJ grid if complex formatting/lookups needed
-          // Or rely on Kendo's default export if column templates aren't too complex
            var sheet = e.workbook.sheets[0];
-           // Example: Manually set Jurisdiction name for export if needed
            for (var rowIndex = 1; rowIndex < sheet.rows.length; rowIndex++) {
                var row = sheet.rows[rowIndex];
                var dataItem = e.sender.dataSource.view()[rowIndex - 1]; // Get corresponding data item
@@ -916,10 +926,10 @@ function initializeContactGrid() {
                     row.cells[stiRoleCellIndex].value = formatRolesTemplate('sti_role')(dataItem); // Use template fn
                }
                 if (phoneCellIndex > -1) {
-                    row.cells[phoneCellIndex].value = formatPhoneTemplate(dataItem, 'user_phone'); // Use template fn
+                    row.cells[phoneCellIndex].value = formatPhoneTemplate(dataItem.acf?.user_phone);
                 }
                 if (faxCellIndex > -1) {
-                     row.cells[faxCellIndex].value = formatPhoneTemplate(dataItem, 'user_fax'); // Use template fn
+                     row.cells[faxCellIndex].value = formatPhoneTemplate(dataItem.acf?.user_fax);
                 }
                // Add other columns as needed
            }
@@ -965,17 +975,9 @@ function initializeContactGrid() {
     }
   }
 
-// Helper function for formatting phone numbers in templates
-function formatPhoneTemplate(dataItem, fieldName = null) {
-    let rawValue = null;
-    // If fieldName is provided (for direct use), get value from potentially nested ACF
-    if (fieldName) {
-       rawValue = dataItem.acf ? dataItem.acf[fieldName] : dataItem[fieldName];
-    } else {
-        // If no fieldName, assume dataItem *is* the phone number (less common)
-        rawValue = dataItem;
-    }
-
+// Helper function for formatting phone numbers - SIMPLIFIED
+// Accepts only the raw phone number string/number
+function formatPhoneTemplate(rawValue) {
     if (typeof rawValue === 'string' || typeof rawValue === 'number') {
         const digits = String(rawValue).replace(/\D/g, '');
         if (digits.length === 10) {
@@ -985,7 +987,7 @@ function formatPhoneTemplate(dataItem, fieldName = null) {
         }
     }
     // Return empty string if invalid or empty
-    return ""; // Changed from "—"
+    return "";
 }
 
 
