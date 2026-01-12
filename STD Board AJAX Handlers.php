@@ -294,6 +294,37 @@ function std_update_user_handler() {
     // Get fresh user data
     $updated_user = get_user_by('id', $user_id);
 
+    // Get roles and ensure they're arrays of integers (not term objects)
+    $hiv_role_data = get_field('hiv_role', 'user_' . $user_id);
+    $sti_role_data = get_field('sti_role', 'user_' . $user_id);
+
+    // Normalize to integer arrays (handles both term objects and IDs)
+    $hiv_role_ids = array();
+    if (!empty($hiv_role_data)) {
+        foreach ((array)$hiv_role_data as $role) {
+            if (is_object($role) && isset($role->term_id)) {
+                $hiv_role_ids[] = (int)$role->term_id;
+            } elseif (is_array($role) && isset($role['term_id'])) {
+                $hiv_role_ids[] = (int)$role['term_id'];
+            } elseif (is_numeric($role)) {
+                $hiv_role_ids[] = (int)$role;
+            }
+        }
+    }
+
+    $sti_role_ids = array();
+    if (!empty($sti_role_data)) {
+        foreach ((array)$sti_role_data as $role) {
+            if (is_object($role) && isset($role->term_id)) {
+                $sti_role_ids[] = (int)$role->term_id;
+            } elseif (is_array($role) && isset($role['term_id'])) {
+                $sti_role_ids[] = (int)$role['term_id'];
+            } elseif (is_numeric($role)) {
+                $sti_role_ids[] = (int)$role;
+            }
+        }
+    }
+
     wp_send_json_success(array(
         'id' => $user_id,
         'first_name' => $updated_user->first_name,
@@ -303,8 +334,8 @@ function std_update_user_handler() {
             'user_phone' => get_field('user_phone', 'user_' . $user_id),
             'user_fax' => get_field('user_fax', 'user_' . $user_id),
             'notes_sti_hiv' => get_field('notes_sti_hiv', 'user_' . $user_id),
-            'hiv_role' => get_field('hiv_role', 'user_' . $user_id) ?: array(),
-            'sti_role' => get_field('sti_role', 'user_' . $user_id) ?: array(),
+            'hiv_role' => $hiv_role_ids,
+            'sti_role' => $sti_role_ids,
             'user_jurisdiction' => get_field('user_jurisdiction', 'user_' . $user_id)
         )
     ));

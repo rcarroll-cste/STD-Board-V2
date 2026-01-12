@@ -478,8 +478,14 @@
                             // If already an array, normalize to integers
                             if (Array.isArray(value)) {
                                 return value.map(function(item) {
-                                    if (typeof item === 'object' && item !== null && item.id !== undefined) {
-                                        return parseInt(item.id, 10);
+                                    if (typeof item === 'object' && item !== null) {
+                                        // Handle ACF term objects (term_id) and regular objects (id)
+                                        if (item.term_id !== undefined) {
+                                            return parseInt(item.term_id, 10);
+                                        }
+                                        if (item.id !== undefined) {
+                                            return parseInt(item.id, 10);
+                                        }
                                     }
                                     return parseInt(item, 10);
                                 }).filter(function(id) { return !isNaN(id); });
