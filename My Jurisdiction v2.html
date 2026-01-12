@@ -472,6 +472,46 @@
                         console.log(">>> usersDataSource.schema.parse: Starting parse. Response:", response);
                         let processedResponse = response;
 
+                        // Helper function to ensure roles are arrays of integers
+                        function ensureRoleArray(value) {
+                            if (!value) return [];
+                            // If already an array, normalize to integers
+                            if (Array.isArray(value)) {
+                                return value.map(function(item) {
+                                    if (typeof item === 'object' && item !== null && item.id !== undefined) {
+                                        return parseInt(item.id, 10);
+                                    }
+                                    return parseInt(item, 10);
+                                }).filter(function(id) { return !isNaN(id); });
+                            }
+                            // Handle JSON string (e.g., "[5,6]")
+                            if (typeof value === 'string') {
+                                try {
+                                    var parsed = JSON.parse(value);
+                                    if (Array.isArray(parsed)) {
+                                        return parsed.map(function(item) {
+                                            return parseInt(item, 10);
+                                        }).filter(function(id) { return !isNaN(id); });
+                                    }
+                                } catch (e) {
+                                    // Not valid JSON, try comma-separated
+                                    if (value.indexOf(',') > -1) {
+                                        return value.split(',').map(function(item) {
+                                            return parseInt(item.trim(), 10);
+                                        }).filter(function(id) { return !isNaN(id); });
+                                    }
+                                    // Single value string
+                                    var singleId = parseInt(value, 10);
+                                    return !isNaN(singleId) ? [singleId] : [];
+                                }
+                            }
+                            // Handle single number
+                            if (typeof value === 'number') {
+                                return [value];
+                            }
+                            return [];
+                        }
+
                         // Handle AJAX success response format {success: true, data: {...}}
                         if (response && response.success === true && response.data) {
                             console.log(">>> usersDataSource.schema.parse: Processing AJAX success response.");
@@ -484,8 +524,10 @@
                             if (!data.acf) {
                                 data.acf = { user_phone: "", user_fax: "", notes_sti_hiv: "", hiv_role: [], sti_role: [] };
                             } else {
-                                if (!Array.isArray(data.acf.hiv_role)) data.acf.hiv_role = [];
-                                if (!Array.isArray(data.acf.sti_role)) data.acf.sti_role = [];
+                                // Normalize roles to arrays of integers
+                                data.acf.hiv_role = ensureRoleArray(data.acf.hiv_role);
+                                data.acf.sti_role = ensureRoleArray(data.acf.sti_role);
+                                console.log(">>> usersDataSource.schema.parse: Normalized roles - HIV:", data.acf.hiv_role, "STI:", data.acf.sti_role);
                             }
                             return data;
                         }
@@ -502,8 +544,9 @@
                                 if (!user.acf) {
                                     user.acf = { user_phone: "", user_fax: "", notes_sti_hiv: "", hiv_role: [], sti_role: [] };
                                 } else {
-                                    if (!Array.isArray(user.acf.hiv_role)) user.acf.hiv_role = [];
-                                    if (!Array.isArray(user.acf.sti_role)) user.acf.sti_role = [];
+                                    // Normalize roles to arrays of integers
+                                    user.acf.hiv_role = ensureRoleArray(user.acf.hiv_role);
+                                    user.acf.sti_role = ensureRoleArray(user.acf.sti_role);
                                 }
                                 return user;
                             });
@@ -513,8 +556,9 @@
                             if (!response.acf) {
                                 response.acf = { user_phone: "", user_fax: "", notes_sti_hiv: "", hiv_role: [], sti_role: [] };
                             } else {
-                                if (!Array.isArray(response.acf.hiv_role)) response.acf.hiv_role = [];
-                                if (!Array.isArray(response.acf.sti_role)) response.acf.sti_role = [];
+                                // Normalize roles to arrays of integers
+                                response.acf.hiv_role = ensureRoleArray(response.acf.hiv_role);
+                                response.acf.sti_role = ensureRoleArray(response.acf.sti_role);
                             }
                             processedResponse = response;
                         } else if (operation === 'destroy' && response && response.deleted === true) {
